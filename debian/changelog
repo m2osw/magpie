@@ -1,0 +1,5 @@
+magpie (1.0.0.0~noble) noble; urgency=high
+
+  * First release of magpie cache.
+
+ -- Alexis Wilke <alexis@m2osw.com>  Fri, 09 Oct 2026 13:35:14 -0700

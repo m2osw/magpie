@@ -1,0 +1,47 @@
+Source: magpie
+Priority: extra
+Maintainer: Alexis Wilke <alexis@m2osw.com>
+Build-Depends: cmake,
+    cppthread-dev (>= 1.1.12.1~jammy),
+    debhelper-compat (= 13),
+    doxygen,
+    graphviz,
+    libexcept-dev (>= 1.1.4.0~jammy),
+    snapcatch2 (>= 2.9.1.0~jammy),
+    snapcmakemodules (>= 1.0.35.3~jammy),
+    snapdev (>= 1.1.20.0~jammy)
+Standards-Version: 3.9.4
+Section: libs
+Homepage: https://snapwebsites.org/project/magpie
+Vcs-Git: https://github.com/m2osw/magpie.git
+Vcs-Browser: https://github.com/m2osw/magpie
+
+Package: magpie
+Architecture: any
+Section: libs
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: C++ memory cache library.
+ A library to manage advanced memory caches.
+ .
+ The library supports an LRU (Least Recently Used) and LFU (Least Frequently
+ Used) cache with a TTL, capacity limits and more.
+
+Package: magpie-dev
+Architecture: any
+Section: libdevel
+Depends: magpie (= ${binary:Version}), ${misc:Depends}
+Suggests: magpie-doc
+Description: C++ memory cache library development package.
+ A developer library to use the magpie library.
+ .
+ The library supports an LRU (Least Recently Used) and LFU (Least Frequently
+ Used) cache with a TTL, capacity limits and more.
+
+Package: magpie-doc
+Architecture: all
+Section: doc
+Depends: ${misc:Depends}
+Description: C++ memory cache library documentation.
+ Documentation about the magpie library.
+
+# vim: ts=4 sw=4 et
