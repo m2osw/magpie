@@ -164,7 +164,7 @@ CATCH_TEST_CASE("options_error", "[options][error]")
     {
         magpie::options opts;
 
-        for(magpie::duration_t duration(-2); duration > -100; --duration)
+        for(magpie::duration_t duration(-3); duration > -100; --duration)
         {
             CATCH_REQUIRE_THROWS_MATCHES(
                       opts.set_default_ttl(duration)

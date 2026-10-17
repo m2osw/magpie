@@ -223,6 +223,18 @@ std::size_t options::get_bucket_count() const
 }
 
 
+void options::set_refuse_data_once_full(bool refuse)
+{
+    f_refuse_data_once_full = refuse;
+}
+
+
+bool options::get_refuse_data_once_full() const
+{
+    return f_refuse_data_once_full;
+}
+
+
 
 } // namespace magpie
 // vim: ts=4 sw=4 et

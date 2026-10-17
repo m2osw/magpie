@@ -31,6 +31,7 @@
 //
 #include    "cache_impl.h"
 #include    "cache_ref.h"
+#include    "cache_size_traits.h"
 #include    "lock_guard.h"
 
 
@@ -217,7 +218,7 @@ public:
             throw logic_error("size of T and size of object to be copied do not match."); // LCOV_EXCL_LINE
         }
 
-std::cout << gettid() << ": --- COPY AN OBJECT " << reinterpret_cast<void const *>(this) << " :: " << in << " -> " << out << " ---" << std::endl;
+//std::cout << gettid() << ": --- COPY AN OBJECT " << reinterpret_cast<void const *>(this) << " :: " << in << " -> " << out << " ---" << std::endl;
         std::construct_at(reinterpret_cast<T *>(out), *reinterpret_cast<T const *>(in));
     }
 
@@ -227,7 +228,7 @@ std::cout << gettid() << ": --- COPY AN OBJECT " << reinterpret_cast<void const 
         {
             throw logic_error("size of T and size of object to be destroyed do no match."); // LCOV_EXCL_LINE
         }
-std::cout << gettid() << ": --- DESTROY AN OBJECT " << reinterpret_cast<void const *>(this) << " :: " << value << " ---" << std::endl;
+//std::cout << gettid() << ": --- DESTROY AN OBJECT " << reinterpret_cast<void const *>(this) << " :: " << value << " ---" << std::endl;
         T * v(reinterpret_cast<T *>(value));
         std::destroy_at(v);
     }
@@ -237,21 +238,20 @@ std::cout << gettid() << ": --- DESTROY AN OBJECT " << reinterpret_cast<void con
         return f_impl->size();
     }
 
+    std::size_t allocated() const
+    {
+        return f_impl->allocated();
+    }
+
     virtual std::size_t allocated(void const * value, std::size_t size) const override
     {
-        if constexpr (!has_capacity<T>)
+        if(size != sizeof(T))
         {
-            return 0UL;
+            throw logic_error("size of T and size of object in allocated() do no match."); // LCOV_EXCL_LINE
         }
-        else
-        {
-            if(size != sizeof(T))
-            {
-                throw logic_error("size of T and size of object in allocated() do no match."); // LCOV_EXCL_LINE
-            }
-            T const * v(reinterpret_cast<T const *>(value));
-            return v->capacity();
-        }
+
+        T const * v(reinterpret_cast<T const *>(value));
+        return cache_size_traits<T>::estimate(*v);
     }
 
 private:

@@ -108,10 +108,14 @@ public:
     void                    set_bucket_count(std::size_t count);
     std::size_t             get_bucket_count() const;
 
+    void                    set_refuse_data_once_full(bool refuse);
+    bool                    get_refuse_data_once_full() const;
+
 private:
     bool                    f_lru = false;
     bool                    f_lfu = false;
     bool                    f_allow_empty_key = false;
+    bool                    f_refuse_data_once_full = false;
     std::size_t             f_maximum_byte_size = 0;
     std::size_t             f_maximum_count = 0;
     std::size_t             f_bucket_count = 10;

@@ -103,28 +103,48 @@ CATCH_TEST_CASE("cache", "[cache]")
             used_keys.insert(k1);
             used_keys.insert(k3);
 
-            for(int repeat(0); repeat < 10; ++repeat)
+            std::size_t count(0);
+            for(int repeat_set(0); repeat_set < 10; ++repeat_set)
             {
+                CATCH_REQUIRE(count == cache.size());
+                CATCH_REQUIRE(count * sizeof(int) == cache.allocated());
+
                 // set a few values
                 //
                 int const v1(rand());
                 cache.set(k1, v1);
+                if(repeat_set == 0)
+                {
+                    ++count;
+                }
+                CATCH_REQUIRE(count == cache.size());
 
                 int const k2(rand());
-                used_keys.insert(k2);
+                std::pair<std::set<int>::iterator, bool> inserted(used_keys.insert(k2));
+                if(inserted.second)
+                {
+                    ++count;
+                }
                 int const v2(rand());
                 cache.set(k2, v2);
+                CATCH_REQUIRE(count == cache.size());
 
                 int const v3(rand());
                 cache.set(k3, v3);
+                if(repeat_set == 0)
+                {
+                    ++count;
+                }
+                CATCH_REQUIRE(count == cache.size());
 
                 // verify the values
                 //
-                for(int count(0); count < 10; ++count)
+                for(int repeat_get(0); repeat_get < 10; ++repeat_get)
                 {
                     CATCH_REQUIRE(cache.get(k1).value() == v1);
                     CATCH_REQUIRE(cache.get(k2).value() == v2);
                     CATCH_REQUIRE(cache.get(k3).value() == v3);
+                    CATCH_REQUIRE(count == cache.size());
 
                     // make sure a key that's not set returns a null
                     //

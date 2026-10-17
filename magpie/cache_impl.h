@@ -101,7 +101,7 @@ class cache_impl
 private:
     struct item_t
     {
-        typedef std::map<hash_t, item_t>        entry_t;
+        typedef std::map<hash_t, item_t>        map_t;
 
                                 item_t(
                                       cache_interface * parent
@@ -189,7 +189,7 @@ private:
 
                                 bucket_t(lock_model_t lock_model);
 
-        item_t::entry_t         f_entries = item_t::entry_t();
+        item_t::map_t           f_entries = item_t::map_t();
         lock_interface::pointer_t
                                 f_lock = lock_interface::pointer_t();
     };
@@ -217,8 +217,10 @@ private:
     bucket_t::vector_t      f_buckets = bucket_t::vector_t();
     bool                    f_least_recently_used = false;
     bool                    f_least_frequently_used = false;
-    std::size_t             f_capacity = 0;
-    std::size_t             f_count = 0;
+    std::size_t             f_capacity_limit = 0;
+    std::size_t             f_count_limit = 0;
+    std::size_t             f_current_capacity_usage = 0;
+    std::size_t             f_current_count_usage = 0;
     std::size_t             f_purge_index = 0;
     std::size_t             f_evict_stats_index = 0;
     std::size_t             f_evict_stats_offset = 0;

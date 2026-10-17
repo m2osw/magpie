@@ -218,13 +218,13 @@ void cache_impl::set_least_frequently_used()
 
 void cache_impl::set_capacity(std::size_t capacity)
 {
-    f_capacity = capacity;
+    f_capacity_limit = capacity;
 }
 
 
 void cache_impl::set_count(std::size_t count)
 {
-    f_count = count;
+    f_count_limit = count;
 }
 
 
@@ -290,8 +290,8 @@ bool cache_impl::is_cleanup_worker_required() const
 {
     return (f_default_ttl != NO_TTL && f_default_ttl != DEFAULT_TTL)
         || f_maximum_lifetime != NO_MAXIMUM_LIFETIME
-        || f_capacity > 0
-        || f_count > 0;
+        || f_capacity_limit > 0
+        || f_count_limit > 0;
 }
 
 
@@ -314,22 +314,34 @@ std::cout << gettid() << ": --- cache_done() called... calling stop ---" << std:
 
 std::size_t cache_impl::size() const
 {
+#ifdef _DEBUG
+    // verify that our counter is indeed current
+    //
     std::size_t size(0);
 
     for(std::size_t idx(0); idx < f_buckets.size(); ++idx)
     {
         bucket_t & bucket{ const_cast<bucket_t &>(f_buckets[idx]) };
+
+        // -------------------- RLOCK --------------------
         lock_guard lock(bucket.f_lock, false);
+
         size += bucket.f_entries.size();
     }
 
-    return size;
+    if(size != f_current_count_usage)
+    {
+        throw logic_error("current real size() and f_current_count_usage do not match");
+    }
+#endif
+
+    return f_current_count_usage;
 }
 
 
 bool cache_impl::is_limit_count_reached() const
 {
-    return f_count != 0 && size() >= f_count;
+    return f_count_limit != 0 && size() >= f_count_limit;
 }
 
 
@@ -347,25 +359,35 @@ bool cache_impl::is_limit_count_reached() const
  */
 std::size_t cache_impl::allocated() const
 {
+#ifdef _DEBUG
     std::size_t size(0);
 
     for(std::size_t idx(0); idx < f_buckets.size(); ++idx)
     {
         bucket_t & bucket{ const_cast<bucket_t &>(f_buckets[idx]) };
+
+        // -------------------- RLOCK --------------------
         lock_guard lock(bucket.f_lock, false);
+
         for(auto const & e : bucket.f_entries)
         {
             size += f_parent->allocated(e.second.f_value, e.second.f_size);
         }
     }
 
-    return size;
+    if(size != f_current_capacity_usage)
+    {
+        throw logic_error("current capacity() and f_current_capacity_usage do not match");
+    }
+#endif
+
+    return f_current_capacity_usage;
 }
 
 
 bool cache_impl::is_capacity_reached() const
 {
-    return f_capacity != 0 && allocated() >= f_capacity;
+    return f_capacity_limit != 0 && allocated() >= f_capacity_limit;
 }
 
 
@@ -399,6 +421,8 @@ bool cache_impl::set(
 {
     time_t const now(time(nullptr));
 
+    // TODO: this constructor means we get TWO copies of the object for new items
+    //
     item_t item(f_parent, value, value_size);
     item.f_created_on = now;
     item.f_last_access = now;
@@ -419,6 +443,8 @@ bool cache_impl::set(
     if(it == bucket.f_entries.end())
     {
         bucket.f_entries.emplace(h, item);
+
+        ++f_current_count_usage;
     }
     else
     {
@@ -431,11 +457,16 @@ bool cache_impl::set(
             throw logic_error("value buffer parent mismatch in set() function."); // LCOV_EXCL_LINE
         }
 
+        f_current_capacity_usage -= it->second.f_allocated;
+
         std::swap(it->second.f_value, item.f_value);
         ++it->second.f_accesses;
+        it->second.f_allocated = item.f_allocated;
         it->second.f_last_access = item.f_last_access;
         it->second.f_ttl = item.f_ttl;
     }
+
+    f_current_capacity_usage += item.f_allocated;
 
     return true;
 }
@@ -486,12 +517,16 @@ bool cache_impl::get(
                 lock_guard exclusive_lock(bucket.f_lock, f_wait_lock_for_stale_data_deletion, true);
                 if(exclusive_lock.is_locked())
                 {
+                    --f_current_count_usage;
+                    f_current_capacity_usage -= it->second.f_allocated;
                     bucket.f_entries.erase(it);
                 }
                 // TODO: else { send to clean up thread }
             }
             else
             {
+                --f_current_count_usage;
+                f_current_capacity_usage -= it->second.f_allocated;
                 bucket.f_entries.erase(it);
             }
         }
@@ -563,8 +598,16 @@ bool cache_impl::erase(hash_t h)
     bucket_t & bucket{ f_buckets[index] };
 
     // -------------------- LOCK --------------------
-    lock_guard lock(bucket.f_lock, false);
-    return bucket.f_entries.erase(h);
+    lock_guard lock(bucket.f_lock, true);
+    auto it(bucket.f_entries.find(h));
+    if(it == bucket.f_entries.end())
+    {
+        return false;
+    }
+    --f_current_count_usage;
+    f_current_capacity_usage -= it->second.f_allocated;
+    bucket.f_entries.erase(it);
+    return true;
 }
 
 
@@ -603,6 +646,8 @@ bool cache_impl::purge_expired()
         {
             if(item_timed_out(it->second))
             {
+                --f_current_count_usage;
+                f_current_capacity_usage -= it->second.f_allocated;
                 it = bucket.f_entries.erase(it);
                 ++f_purged_counter;
             }
@@ -648,8 +693,8 @@ bool cache_impl::evict_stats()
 {
     // if no LRU/LFU evictions are possible, then return "done" immediately
     //
-    if(f_capacity == 0
-    && f_count == 0)
+    if(f_capacity_limit == 0
+    && f_count_limit == 0)
     {
         return true;
     }
@@ -676,16 +721,16 @@ bool cache_impl::evict_stats()
         // is reached
         //
         double const current_size(size());
-        double const eviction_trigger(f_count * f_size_eviction_trigger_percent);
+        double const eviction_trigger(f_count_limit * f_size_eviction_trigger_percent);
         if(current_size >= eviction_trigger)
         {
-            double const eviction_count(f_count * f_size_eviction_reduction_percent);
+            // add a little bit so by the time we start evicting we
+            // get at least enough entries
+            //
+            double const eviction_count(f_count_limit * f_size_eviction_reduction_percent + 10.0);
             if(eviction_count > f_evict_smallest_weights_count)
             {
-                // add a little bit so by the time we start evicting we
-                // get at least enough entries
-                //
-                f_evict_smallest_weights_count = eviction_count + 10.0;
+                f_evict_smallest_weights_count = eviction_count;
             }
         }
     }
@@ -744,8 +789,8 @@ bool cache_impl::evict_organize_by_bucket()
     std::size_t current_count(size());
     std::size_t current_allocated(allocated());
 
-    std::size_t count_limit(f_count * f_size_eviction_reduction_percent);
-    std::size_t capacity_limit(f_capacity * f_size_eviction_reduction_percent);
+    std::size_t count_limit(f_count_limit * f_size_eviction_reduction_percent);
+    std::size_t capacity_limit(f_capacity_limit * f_size_eviction_reduction_percent);
 
     auto need_more_evictions([count_limit, capacity_limit, &current_count, &current_allocated]()
         {
@@ -790,12 +835,27 @@ bool cache_impl::evict()
 {
     if(!f_targets_by_bucket.empty())
     {
-        auto it(f_targets_by_bucket.begin());
-        std::size_t const index(it->first);
-        bucket_t & bucket{ f_buckets[index] };
-        for(auto & h : it->second)
+        auto bucket_it(f_targets_by_bucket.begin());
+        std::size_t const bucket_idx(bucket_it->first);
+        bucket_t & bucket{ f_buckets[bucket_idx] };
+
+        // -------------------- LOCK --------------------
+        lock_guard lock(bucket.f_lock, true);
+
+        for(auto & h : bucket_it->second)
         {
-            bucket.f_entries.erase(h);
+            // WARNING: at the moment, the locks are considered non-recursive
+            //          because the rwlock is not--so calling erase(h) from
+            //          here would end up in a deadlock
+            //
+            auto it(bucket.f_entries.find(h));
+            if(it == bucket.f_entries.end())
+            {
+                return false;
+            }
+            --f_current_count_usage;
+            f_current_capacity_usage -= it->second.f_allocated;
+            bucket.f_entries.erase(it);
         }
         f_targets_by_bucket.erase(f_targets_by_bucket.begin());
     }
