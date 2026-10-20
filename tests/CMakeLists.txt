@@ -29,6 +29,7 @@ if(SnapCatch2_FOUND)
         catch_main.cpp
 
         catch_cache.cpp
+        catch_evict.cpp
         catch_options.cpp
         catch_thread.cpp
         catch_ttl.cpp

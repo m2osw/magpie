@@ -46,18 +46,20 @@ CATCH_TEST_CASE("options", "[options]")
     {
         magpie::options opts;
 
-        CATCH_REQUIRE_FALSE(opts.get_least_recently_used());
-        CATCH_REQUIRE_FALSE(opts.get_least_frequently_used());
+        CATCH_REQUIRE(opts.get_eviction_policy() == nullptr);
         CATCH_REQUIRE_FALSE(opts.get_allow_empty_key());
-        CATCH_REQUIRE(opts.get_capacity() == 0);
-        CATCH_REQUIRE(opts.get_count() == 0);
+        CATCH_REQUIRE(opts.get_refuse_data_once_full());
+        CATCH_REQUIRE(opts.get_maximum_object_size() == magpie::NO_LIMIT);
+        CATCH_REQUIRE(opts.get_capacity_limit() == magpie::NO_LIMIT);
+        CATCH_REQUIRE(opts.get_count_limit() == magpie::NO_LIMIT);
+        CATCH_REQUIRE(opts.get_bucket_count() == magpie::DEFAULT_BUCKET_COUNT);
         CATCH_REQUIRE(opts.get_default_ttl() == magpie::NO_TTL);
-        CATCH_REQUIRE(opts.get_cleanup_interval() == 3600);
+        CATCH_REQUIRE(opts.get_maximum_lifetime() == magpie::NO_MAXIMUM_LIFETIME);
+        CATCH_REQUIRE(opts.get_cleanup_interval() == magpie::DEFAULT_CLEANUP_INTERVAL);
         CATCH_REQUIRE(opts.get_lock_model() == magpie::lock_model_t::LOCK_MODEL_MUTEX);
         snapdev::timespec_ex wait{ 0, 4 };
         CATCH_REQUIRE(opts.get_wait_lock_for_stale_data_deletion() == wait);
         CATCH_REQUIRE(opts.get_stale_data() == magpie::stale_data_t::STALE_DATA_DELETE);
-        CATCH_REQUIRE(opts.get_bucket_count() == 10);
     }
     CATCH_END_SECTION()
 
@@ -67,19 +69,12 @@ CATCH_TEST_CASE("options", "[options]")
         magpie::options opts;
 
         {
-            CATCH_REQUIRE_FALSE(opts.get_least_recently_used());
-            opts.set_least_recently_used(true);
-            CATCH_REQUIRE(opts.get_least_recently_used());
-            opts.set_least_recently_used(false);
-            CATCH_REQUIRE_FALSE(opts.get_least_recently_used());
-        }
-
-        {
-            CATCH_REQUIRE_FALSE(opts.get_least_frequently_used());
-            opts.set_least_frequently_used(true);
-            CATCH_REQUIRE(opts.get_least_frequently_used());
-            opts.set_least_frequently_used(false);
-            CATCH_REQUIRE_FALSE(opts.get_least_frequently_used());
+            CATCH_REQUIRE(opts.get_eviction_policy() == nullptr);
+            magpie::eviction_policy_add::pointer_t ep(std::make_shared<magpie::eviction_policy_add>());
+            opts.set_eviction_policy(ep);
+            CATCH_REQUIRE(opts.get_eviction_policy() == ep);
+            opts.set_eviction_policy(nullptr);
+            CATCH_REQUIRE(opts.get_eviction_policy() == nullptr);
         }
 
         {
@@ -90,17 +85,39 @@ CATCH_TEST_CASE("options", "[options]")
             CATCH_REQUIRE_FALSE(opts.get_allow_empty_key());
         }
 
+        {
+            CATCH_REQUIRE(opts.get_refuse_data_once_full());
+            opts.set_refuse_data_once_full(false);
+            CATCH_REQUIRE_FALSE(opts.get_refuse_data_once_full());
+            opts.set_refuse_data_once_full(true);
+            CATCH_REQUIRE(opts.get_refuse_data_once_full());
+        }
+
+        for(std::size_t size(0); size < 1'000'000; size += rand() % 1'000)
+        {
+            opts.set_maximum_object_size(size);
+            CATCH_REQUIRE(opts.get_maximum_object_size() == size);
+        }
+
         for(std::size_t capacity(0); capacity < 1'000'000; capacity += rand() % 1'000)
         {
-            opts.set_capacity(capacity);
-            CATCH_REQUIRE(opts.get_capacity() == capacity);
+            opts.set_capacity_limit(capacity);
+            CATCH_REQUIRE(opts.get_capacity_limit() == capacity);
         }
 
         for(std::size_t count(0); count < 1'000'000; count += rand() % 1'000)
         {
-            opts.set_count(count);
-            CATCH_REQUIRE(opts.get_count() == count);
+            opts.set_count_limit(count);
+            CATCH_REQUIRE(opts.get_count_limit() == count);
         }
+
+        for(std::size_t count(1); count < magpie::MAX_BUCKET_COUNT; count += rand())
+        {
+            opts.set_bucket_count(count);
+            CATCH_REQUIRE(opts.get_bucket_count() == count);
+        }
+        opts.set_bucket_count(magpie::MAX_BUCKET_COUNT);
+        CATCH_REQUIRE(opts.get_bucket_count() == magpie::MAX_BUCKET_COUNT);
 
         for(magpie::duration_t duration(1); duration < 1'000'000; duration += rand() % 1'000)
         {
@@ -115,6 +132,12 @@ CATCH_TEST_CASE("options", "[options]")
 
             opts.set_default_ttl(magpie::DEFAULT_TTL);
             CATCH_REQUIRE(opts.get_default_ttl() == magpie::DEFAULT_TTL);
+        }
+
+        for(magpie::duration_t duration(0); duration < 1'000'000; duration += rand() % 1'000)
+        {
+            opts.set_maximum_lifetime(duration);
+            CATCH_REQUIRE(opts.get_maximum_lifetime() == duration);
         }
 
         for(magpie::duration_t duration(1); duration < 1'000'000; duration += rand() % 1'000)
@@ -145,14 +168,6 @@ CATCH_TEST_CASE("options", "[options]")
             opts.set_stale_data(mode);
             CATCH_REQUIRE(opts.get_stale_data() == mode);
         }
-
-        for(std::size_t count(1); count < magpie::MAX_BUCKET_COUNT; count += rand())
-        {
-            opts.set_bucket_count(count);
-            CATCH_REQUIRE(opts.get_bucket_count() == count);
-        }
-        opts.set_bucket_count(magpie::MAX_BUCKET_COUNT);
-        CATCH_REQUIRE(opts.get_bucket_count() == magpie::MAX_BUCKET_COUNT);
     }
     CATCH_END_SECTION()
 }
@@ -163,6 +178,12 @@ CATCH_TEST_CASE("options_error", "[options][error]")
     CATCH_START_SECTION("options_error: verify that the TTL cannot be a negative number")
     {
         magpie::options opts;
+
+        CATCH_REQUIRE_THROWS_MATCHES(
+                  opts.set_default_ttl(0)
+                , magpie::out_of_range
+                , Catch::Matchers::ExceptionMessage(
+                          "out_of_range: options::set_default_ttl(): ttl must be a positive number, magpie::NO_TTL, or magpie::DEFAULT_TTL."));
 
         for(magpie::duration_t duration(-3); duration > -100; --duration)
         {

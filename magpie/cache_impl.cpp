@@ -33,6 +33,7 @@
 #include    <magpie/lock_mutex.h>
 #include    <magpie/lock_recursive_rwlock.h>
 #include    <magpie/lock_rwlock.h>
+#include    <magpie/utils.h>
 
 
 
@@ -81,9 +82,6 @@ cleanup_runner::pointer_t       g_cleanup_runner = cleanup_runner::pointer_t();
 cppthread::thread::pointer_t    g_cleanup_thread = cppthread::thread::pointer_t();
 
 
-time_t const                    g_start_time = time(nullptr) - 1; // -1 to make sure we do not divide by zero
-
-
 /** \brief Start or join the cleanup worker thread.
  *
  * When a cache_impl pointer is specified in \p impl, then this
@@ -105,6 +103,7 @@ void start_stop_cleanup_worker(cache_impl::pointer_t impl, bool done)
 {
     static cppthread::mutex local_lock = cppthread::mutex();
     cppthread::guard lock(local_lock);
+std::cerr << gettid() << ": --- start_stop_cleanup_worker() get cleanup thread ready or stopped ---" << std::endl;
 
     // done with the thread?
     //
@@ -114,20 +113,20 @@ void start_stop_cleanup_worker(cache_impl::pointer_t impl, bool done)
         {
             // thread was never allocated, nothing to do here
             //
-std::cout << gettid() << ": --- start_stop_cleanup_worker() no cleanup thread? ---" << std::endl;
+std::cerr << gettid() << ": --- start_stop_cleanup_worker() no cleanup thread? ---" << std::endl;
             return;
         }
-std::cout << gettid() << ": --- start_stop_cleanup_worker() ready to release cache ---" << std::endl;
+std::cerr << gettid() << ": --- start_stop_cleanup_worker() ready to release cache ---" << std::endl;
         g_cleanup_runner->release_cache(impl);
 
         if(!g_cleanup_runner->all_caches_removed())
         {
             // the runner still has some cache_impl to manage
             //
-std::cout << gettid() << ": --- start_stop_cleanup_worker() still has caches to manage ---" << std::endl;
+std::cerr << gettid() << ": --- start_stop_cleanup_worker() still has caches to manage ---" << std::endl;
             return;
         }
-std::cout << gettid() << ": --- start_stop_cleanup_worker() done managing threads ---" << std::endl;
+std::cerr << gettid() << ": --- start_stop_cleanup_worker() done managing threads ---" << std::endl;
         //g_cleanup_thread->stop([](cppthread::thread * t){
         //        static_cast<cleanup_runner *>(t->get_runner())->wakeup();
         //    });
@@ -151,10 +150,13 @@ std::cout << gettid() << ": --- start_stop_cleanup_worker() done managing thread
             g_cleanup_thread->start();
         }
 
-std::cout << gettid() << ": --- start_stop_cleanup_worker() add impl " << reinterpret_cast<void const *>(impl.get()) << " to thread ---" << std::endl;
         g_cleanup_runner->manage_cache(impl);
     }
 }
+
+
+
+
 
 
 cache_impl::bucket_t::bucket_t(lock_model_t lock_model)
@@ -173,20 +175,189 @@ cache_impl::bucket_t::bucket_t(lock_model_t lock_model)
         f_lock = std::make_shared<lock_recursive_rwlock>();
         break;
 
-    default:
-        throw not_implemented("unknown lock model.");
+    default:                                            // LCOV_EXCL_LINE
+        throw not_implemented("unknown lock model.");   // LCOV_EXCL_LINE
 
     }
 }
 
 
 
-cache_impl::cache_impl(
-          cache_interface * parent
-        , std::size_t bucket_count
-        , lock_model_t lock_model)
+
+
+
+cache_impl::item_t::item_t(cache_interface * parent)
     : f_parent(parent)
 {
+}
+
+
+cache_impl::item_t::item_t(item_t const & rhs)
+    : f_parent(rhs.f_parent)
+    , f_size(rhs.f_size)
+    , f_allocated(rhs.f_allocated)
+    , f_created_on(rhs.f_created_on)
+    , f_ttl(rhs.f_ttl)
+{
+    if(this != &rhs)
+    {
+        f_accesses.store(rhs.f_accesses.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        f_last_access.store(rhs.f_last_access.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        f_timeout.store(rhs.f_timeout.load(std::memory_order_relaxed), std::memory_order_relaxed);
+
+        if(rhs.f_size != 0
+        && rhs.f_value != nullptr)
+        {
+            if(f_size != 0
+            && f_size != rhs.f_size)
+            {
+                throw logic_error("item_t copying detected varying sizes between source and destination."); // LCOV_EXCL_LINE
+            }
+
+            if(f_value == nullptr)
+            {
+                f_value = malloc(rhs.f_size);
+                if(f_value == nullptr)
+                {
+                    throw std::bad_alloc(); // LCOV_EXCL_LINE
+                }
+                f_size = rhs.f_size;
+            }
+            else
+            {
+                f_parent->destroy(f_value, f_size);
+            }
+
+            try
+            {
+                f_parent->copy(rhs.f_value, f_value, f_size);
+            }
+            catch(...)
+            {
+                free(f_value);
+                f_value = nullptr;
+                f_size = 0;
+                throw;
+            }
+        }
+        else if(f_value != nullptr)
+        {
+            free(f_value);
+            f_value = nullptr;
+            f_size = 0;
+        }
+    }
+}
+
+
+cache_impl::item_t::~item_t()
+{
+    if(f_value != nullptr)
+    {
+        f_parent->destroy(f_value, f_size);
+        free(f_value);
+    }
+}
+
+
+cache_impl::item_t const & cache_impl::item_t::operator = (item_t const & rhs)
+{
+    if(this != &rhs)
+    {
+        if(rhs.f_size != 0
+        && rhs.f_value != nullptr)
+        {
+            if(f_parent != rhs.f_parent)
+            {
+                throw logic_error("all the items in the cache must have the exact same parent."); // LCOV_EXCL_LINE
+            }
+            if(f_size != rhs.f_size)
+            {
+                throw logic_error("all the items in the cache must have the exact same size."); // LCOV_EXCL_LINE
+            }
+
+            if(f_value != nullptr)
+            {
+                f_parent->destroy(f_value, f_size);
+            }
+            else
+            {
+                f_value = malloc(rhs.f_size);
+                if(f_value == nullptr)
+                {
+                    throw std::bad_alloc(); // LCOV_EXCL_LINE
+                }
+                f_size = rhs.f_size;
+            }
+            try
+            {
+                f_parent->copy(rhs.f_value, f_value, f_size);
+            }
+            catch(...)
+            {
+                free(f_value);
+                f_value = nullptr;
+                f_size = 0;
+            }
+
+            f_allocated = rhs.f_allocated;
+            f_created_on = rhs.f_created_on;
+            f_ttl = rhs.f_ttl;
+
+            f_accesses.store(rhs.f_accesses.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            f_last_access.store(rhs.f_last_access.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            f_timeout.store(rhs.f_timeout.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        }
+        else if(f_value != nullptr)
+        {
+            free(f_value);
+            f_value = nullptr;
+            f_size = 0;
+        }
+    }
+
+    return *this;
+}
+
+
+void cache_impl::item_t::set_value(void const * value, std::size_t size)
+{
+    if(f_value == nullptr)
+    {
+        f_value = malloc(size);
+        if(f_value == nullptr)
+        {
+            throw std::bad_alloc(); // LCOV_EXCL_LINE
+        }
+        f_size = size;
+    }
+    else
+    {
+        if(f_size != size)
+        {
+            throw logic_error("a value exists in item_t, but it has a different size."); // LCOV_EXCL_LINE
+        }
+        f_parent->destroy(f_value, f_size);
+    }
+    f_parent->copy(value, f_value, f_size);
+}
+
+
+
+
+
+
+
+
+cache_impl::cache_impl(
+          cache_interface * parent
+        , options const & opts)
+    : f_parent(parent)
+    , f_opts(opts)
+{
+    std::size_t const bucket_count(opts.get_bucket_count());
+    lock_model_t const lock_model(opts.get_lock_model());
+
     f_buckets.reserve(bucket_count);
     for(std::size_t idx(0); idx < bucket_count; ++idx)
     {
@@ -204,63 +375,9 @@ hash_t cache_impl::hash_key(void const * key, std::size_t size)
 }
 
 
-void cache_impl::set_least_recently_used()
-{
-    f_least_recently_used = true;
-}
-
-
-void cache_impl::set_least_frequently_used()
-{
-    f_least_frequently_used = true;
-}
-
-
-void cache_impl::set_capacity(std::size_t capacity)
-{
-    f_capacity_limit = capacity;
-}
-
-
-void cache_impl::set_count(std::size_t count)
-{
-    f_count_limit = count;
-}
-
-
-void cache_impl::set_default_ttl(duration_t ttl)
-{
-    f_default_ttl = ttl;
-}
-
-
-void cache_impl::set_maximum_lifetime(duration_t max)
-{
-    f_maximum_lifetime = max;
-}
-
-
-void cache_impl::set_cleanup_interval(duration_t interval)
-{
-    f_cleanup_interval = interval;
-}
-
-
 duration_t cache_impl::get_cleanup_interval() const
 {
-    return f_cleanup_interval;
-}
-
-
-void cache_impl::set_wait_lock_for_stale_data_deletion(timespec const & max_wait)
-{
-    f_wait_lock_for_stale_data_deletion = max_wait;
-}
-
-
-void cache_impl::set_stale_data(stale_data_t mode)
-{
-    f_stale_data = mode;
+    return f_opts.get_cleanup_interval();
 }
 
 
@@ -288,15 +405,16 @@ void cache_impl::set_stale_data(stale_data_t mode)
  */
 bool cache_impl::is_cleanup_worker_required() const
 {
-    return (f_default_ttl != NO_TTL && f_default_ttl != DEFAULT_TTL)
-        || f_maximum_lifetime != NO_MAXIMUM_LIFETIME
-        || f_capacity_limit > 0
-        || f_count_limit > 0;
+    return (f_opts.get_default_ttl() != NO_TTL && f_opts.get_default_ttl() != DEFAULT_TTL)
+        || f_opts.get_maximum_lifetime() != NO_MAXIMUM_LIFETIME
+        || f_opts.get_capacity_limit() > 0
+        || f_opts.get_count_limit() > 0;
 }
 
 
 void cache_impl::start_cleanup_worker()
 {
+std::cerr << gettid() << ": --- start cleanup worker now... ---" << std::endl;
     std::call_once(
           f_thread_started
         , &start_stop_cleanup_worker
@@ -307,14 +425,14 @@ void cache_impl::start_cleanup_worker()
 
 void cache_impl::cache_done()
 {
-std::cout << gettid() << ": --- cache_done() called... calling stop ---" << std::endl;
+std::cerr << gettid() << ": --- cache_done() called... calling stop ---" << std::endl;
     start_stop_cleanup_worker(shared_from_this(), true);
 }
 
 
-std::size_t cache_impl::size() const
-{
 #ifdef _DEBUG
+void cache_impl::verify_current_count()
+{
     // verify that our counter is indeed current
     //
     std::size_t size(0);
@@ -331,35 +449,13 @@ std::size_t cache_impl::size() const
 
     if(size != f_current_count_usage)
     {
-        throw logic_error("current real size() and f_current_count_usage do not match");
+        throw logic_error("current real size() and f_current_count_usage do not match"); // LCOV_EXCL_LINE
     }
-#endif
-
-    return f_current_count_usage;
 }
 
 
-bool cache_impl::is_limit_count_reached() const
+void cache_impl::verify_current_capacity()
 {
-    return f_count_limit != 0 && size() >= f_count_limit;
-}
-
-
-/** \brief Function used to compute the amount of memory allocated.
- *
- * This function attempts to determine the amount of memory allocated
- * by the elements in the cache. This is always short because it does
- * not count the size of the structures used to maintain the cache.
- *
- * \warning
- * This function is available only if your T class (as defined in the
- * cache) supports a size() function.
- *
- * \return The total number of bytes allocated at the moment.
- */
-std::size_t cache_impl::allocated() const
-{
-#ifdef _DEBUG
     std::size_t size(0);
 
     for(std::size_t idx(0); idx < f_buckets.size(); ++idx)
@@ -377,43 +473,65 @@ std::size_t cache_impl::allocated() const
 
     if(size != f_current_capacity_usage)
     {
-        throw logic_error("current capacity() and f_current_capacity_usage do not match");
+        throw logic_error("current capacity() and f_current_capacity_usage do not match"); // LCOV_EXCL_LINE
     }
+}
 #endif
 
+
+std::size_t cache_impl::size() const
+{
+    return f_current_count_usage;
+}
+
+
+bool cache_impl::is_limit_count_reached() const
+{
+    return f_opts.get_count_limit() != 0
+        && size() >= f_opts.get_count_limit();
+}
+
+
+/** \brief Function used to compute the amount of memory allocated.
+ *
+ * This function attempts to determine the amount of memory allocated
+ * by the elements in the cache. This is always short because it does
+ * not count the size of the structures used to maintain the cache.
+ *
+ * \warning
+ * This function is available only if your T class (as defined in the
+ * cache) supports a size() function.
+ *
+ * \return The total number of bytes allocated at the moment.
+ */
+std::size_t cache_impl::allocated() const
+{
     return f_current_capacity_usage;
 }
 
 
 bool cache_impl::is_capacity_reached() const
 {
-    return f_capacity_limit != 0 && allocated() >= f_capacity_limit;
+    return f_opts.get_capacity_limit() != 0
+        && allocated() >= f_opts.get_capacity_limit();
 }
 
 
 bool cache_impl::item_timed_out(item_t const & item) const
 {
     time_t const now(time(nullptr));
-    return (item.f_ttl != NO_TTL && item.f_ttl != DEFAULT_TTL && now >= item.f_last_access + item.f_ttl)
-        || (f_maximum_lifetime != NO_MAXIMUM_LIFETIME && now >= item.f_created_on + f_maximum_lifetime);
+    return (item.f_timeout != time_t() && now >= item.f_timeout)
+        || (f_opts.get_maximum_lifetime() != NO_MAXIMUM_LIFETIME && now >= item.f_created_on + f_opts.get_maximum_lifetime());
 }
 
 
 std::size_t cache_impl::get_bucket_index(hash_t h) const
 {
-    return h % f_buckets.size();
+    return static_cast<std::uint64_t>(h) % f_buckets.size();
 }
 
 
-void cache_impl::release()
-{
-    // before we can delete a cache_impl, we must make sure
-    // it is not currently defined in the cleanup thread list
-    //
-}
-
-
-bool cache_impl::set(
+set_result_t cache_impl::set(
       hash_t h
     , void const * value
     , std::size_t value_size
@@ -421,12 +539,51 @@ bool cache_impl::set(
 {
     time_t const now(time(nullptr));
 
+    if(ttl == DEFAULT_TTL)
+    {
+        ttl = f_opts.get_default_ttl();
+    }
+    if(ttl != DEFAULT_TTL && ttl != NO_TTL)
+    {
+        if(ttl <= 0)
+        {
+            erase(h);
+            return set_result_t::SET_RESULT_REJECTED_EXPIRED;
+        }
+        if(f_opts.get_default_ttl() != DEFAULT_TTL && f_opts.get_default_ttl() != NO_TTL)
+        {
+            // choose between at least 5 min. or 1% of the default TTL
+            //
+            double const min_ttl(std::min(300.0, f_opts.get_default_ttl() * 0.01));
+            if(ttl < min_ttl)
+            {
+                // ttl is really short, avoid saving this value
+                //
+                erase(h);
+                return set_result_t::SET_RESULT_REJECTED_EXPIRED;
+            }
+        }
+    }
+
+    std::size_t const allocated_bytes(f_parent->allocated(value, value_size));
+    if(f_opts.get_maximum_object_size() != 0
+    && allocated_bytes > f_opts.get_maximum_object_size())
+    {
+        erase(h);
+        return set_result_t::SET_RESULT_REJECTED_TOO_LARGE;
+    }
+
     // TODO: this constructor means we get TWO copies of the object for new items
     //
-    item_t item(f_parent, value, value_size);
+    item_t item(f_parent);
+    item.f_allocated = allocated_bytes;
     item.f_created_on = now;
     item.f_last_access = now;
-    item.f_ttl = ttl == DEFAULT_TTL ? f_default_ttl : ttl;
+    item.f_ttl = ttl;
+    if(ttl > 0)
+    {
+        item.f_timeout = now + ttl;
+    }
 
     std::size_t const index(get_bucket_index(h));
     bucket_t & bucket{ f_buckets[index] };
@@ -442,33 +599,84 @@ bool cache_impl::set(
     auto it(bucket.f_entries.find(h));
     if(it == bucket.f_entries.end())
     {
-        bucket.f_entries.emplace(h, item);
+        // in this case the object is new so the count/size is additive
+        //
+        if(f_opts.get_refuse_data_once_full())
+        {
+            if(is_limit_count_reached())
+            {
+                return set_result_t::SET_RESULT_REJECTED_COUNT;
+            }
+
+            if(is_capacity_reached())
+            {
+                return set_result_t::SET_RESULT_REJECTED_CAPACITY;
+            }
+        }
+
+        std::pair<item_t::map_t::iterator, bool> inserted(bucket.f_entries.emplace(h, item));
+#ifdef _DEBUG
+        if(!inserted.second)
+        {
+            throw logic_error("somehow emplace() did not insert the element even though we just checked and it was not there."); // LCOV_EXCL_LINE
+        }
+#endif
+        inserted.first->second.set_value(value, value_size);
 
         ++f_current_count_usage;
+        f_current_capacity_usage += item.f_allocated;
+
+        return set_result_t::SET_RESULT_ADDED;
     }
     else
     {
-        if(item.f_size != it->second.f_size)
+        if(value_size != it->second.f_size)
         {
-            throw logic_error("value buffer size mismatch in set() function."); // LCOV_EXCL_LINE
+            throw logic_error("item value size mismatch in set() function."); // LCOV_EXCL_LINE
         }
         if(item.f_parent != it->second.f_parent)
         {
-            throw logic_error("value buffer parent mismatch in set() function."); // LCOV_EXCL_LINE
+            throw logic_error("item parent mismatch in set() function."); // LCOV_EXCL_LINE
+        }
+
+        // in this case the object is being updated so the count doesn't
+        // change but the size may be larger and may require rejection
+        //
+        if(f_opts.get_refuse_data_once_full()
+        && item.f_allocated > it->second.f_allocated
+        && f_opts.get_capacity_limit() != 0)
+        {
+            std::size_t const additional(item.f_allocated - it->second.f_allocated);
+            if(f_current_capacity_usage + additional >= f_opts.get_capacity_limit())
+            {
+                bucket.f_entries.erase(it);
+                return set_result_t::SET_RESULT_REJECTED_CAPACITY;
+            }
         }
 
         f_current_capacity_usage -= it->second.f_allocated;
+        f_current_capacity_usage += item.f_allocated;
 
-        std::swap(it->second.f_value, item.f_value);
-        ++it->second.f_accesses;
+        it->second.set_value(value, value_size);
         it->second.f_allocated = item.f_allocated;
-        it->second.f_last_access = item.f_last_access;
         it->second.f_ttl = item.f_ttl;
+
+        ++it->second.f_accesses;
+        if(it->second.f_accesses.load(std::memory_order_relaxed) > f_maximum_accesses)
+        {
+            f_maximum_accesses = it->second.f_accesses.load(std::memory_order_relaxed);
+        }
+        if(it->second.f_allocated > f_maximum_allocated)
+        {
+            f_maximum_allocated = it->second.f_allocated;
+        }
+        it->second.f_last_access.store(item.f_last_access.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        it->second.f_timeout.store(item.f_timeout.load(std::memory_order_relaxed), std::memory_order_relaxed);
+
+        return set_result_t::SET_RESULT_UPDATED;
     }
 
-    f_current_capacity_usage += item.f_allocated;
-
-    return true;
+    snapdev::NOT_REACHED();
 }
 
 
@@ -499,11 +707,13 @@ bool cache_impl::get(
         throw logic_error("value buffer size mismatch in get() function."); // LCOV_EXCL_LINE
     }
 
-    if(f_stale_data != stale_data_t::STALE_DATA_RETURN
+    if(f_opts.get_stale_data() != stale_data_t::STALE_DATA_RETURN
     && item_timed_out(it->second))
     {
-        if(f_stale_data == stale_data_t::STALE_DATA_DELETE)
+        if(f_opts.get_stale_data() == stale_data_t::STALE_DATA_DELETE)
         {
+std::cerr << "--- auto-purge in get()?!" << std::endl;
+
             // item timed out, get rid of it
             //
             if(bucket.f_lock->supports_rlock())
@@ -514,7 +724,7 @@ bool cache_impl::get(
                 shared_lock.unlock();
 
                 // -------------------- LOCK --------------------
-                lock_guard exclusive_lock(bucket.f_lock, f_wait_lock_for_stale_data_deletion, true);
+                lock_guard exclusive_lock(bucket.f_lock, f_opts.get_wait_lock_for_stale_data_deletion(), true);
                 if(exclusive_lock.is_locked())
                 {
                     --f_current_count_usage;
@@ -533,19 +743,21 @@ bool cache_impl::get(
         return false;
     }
 
-    if(!update_ttl)
+    if(update_ttl)
     {
-        // "not updating ttl" means keeping the same deadline
-        // which moves whenever the f_last_access parameter changes
-        // so in this case we adjust the TTL to compensate
+        // "updating ttl" means updating the f_timeout field to the
+        // now + f_ttl -- i.e. it pushes back when the value is considered
+        // stale
         //
-        duration_t const diff(now - it->second.f_last_access);
-        it->second.f_ttl = diff >= it->second.f_ttl
-                            ? 0
-                            : it->second.f_ttl - diff;
+        it->second.f_timeout = now + it->second.f_ttl;
     }
 
     it->second.f_last_access = now;
+    ++it->second.f_accesses;
+    if(it->second.f_accesses > f_maximum_accesses)
+    {
+        f_maximum_accesses = it->second.f_accesses.load(std::memory_order_relaxed);
+    }
 
     f_parent->copy(it->second.f_value, value, value_size);
 
@@ -574,17 +786,14 @@ metadata_t cache_impl::get_metadata(hash_t h)
     result.f_created_on = it->second.f_created_on;
     result.f_last_access = it->second.f_last_access;
     result.f_ttl = it->second.f_ttl;
+    result.f_timeout = it->second.f_timeout;
 
     // compute the time when the data is considered stale
     //
-    if(it->second.f_ttl != NO_TTL
-    && it->second.f_ttl != DEFAULT_TTL)
+    result.f_stale_at = it->second.f_timeout;
+    if(f_opts.get_maximum_lifetime() != NO_MAXIMUM_LIFETIME)
     {
-        result.f_stale_at = it->second.f_last_access + it->second.f_ttl;
-    }
-    if(f_maximum_lifetime != NO_MAXIMUM_LIFETIME)
-    {
-        time_t const maximum_stale_at(it->second.f_created_on + f_maximum_lifetime);
+        time_t const maximum_stale_at(it->second.f_created_on + f_opts.get_maximum_lifetime());
         result.f_stale_at = std::min(result.f_stale_at, maximum_stale_at);
     }
 
@@ -635,6 +844,7 @@ bool cache_impl::contains(hash_t h) const
  */
 bool cache_impl::purge_expired()
 {
+std::cerr << "--- purge_expired() called... " << f_current_count_usage << "/" << f_purged_counter << std::endl;
     bucket_t & bucket{ f_buckets[f_purge_index] };
 
     {
@@ -644,6 +854,13 @@ bool cache_impl::purge_expired()
         auto it(bucket.f_entries.begin());
         while(it != bucket.f_entries.end())
         {
+//std::cerr << std::boolalpha << "--- purge_expired() >> bucket[" << f_purge_index << "] = "
+//<< *reinterpret_cast<std::string const *>(it->second.f_value)
+//<< " -- now: " << (time(nullptr))
+//<< " vs timeout " << it->second.f_timeout
+//<< " -> " << (it->second.f_timeout != time_t() && time(nullptr) >= it->second.f_timeout)
+//<< " [" << (it->second.f_timeout != time_t()) << ", " << (time(nullptr) >= it->second.f_timeout) << "]"
+//<< ".\n";
             if(item_timed_out(it->second))
             {
                 --f_current_count_usage;
@@ -657,6 +874,7 @@ bool cache_impl::purge_expired()
             }
         }
     }
+std::cerr << "--- purge_expired() done looping... " << f_current_count_usage << "/" << f_purged_counter << std::endl;
 
     ++f_purge_index;
     if(f_purge_index >= f_buckets.size())
@@ -693,8 +911,8 @@ bool cache_impl::evict_stats()
 {
     // if no LRU/LFU evictions are possible, then return "done" immediately
     //
-    if(f_capacity_limit == 0
-    && f_count_limit == 0)
+    eviction_policy::pointer_t ep(f_opts.get_eviction_policy());
+    if(ep == nullptr)
     {
         return true;
     }
@@ -705,10 +923,40 @@ bool cache_impl::evict_stats()
         //
         f_evict_smallest_weights.clear();
 
-        f_evict_stat_max_accesses_for_weight = f_evict_stat_max_accesses;
-        f_evict_stat_latest_access_age_for_weight = time(nullptr) - g_start_time;
+        if(f_evict_stat_max_accesses == 0)
+        {
+            // the first time, make use of the f_max_accesses
+            // since f_evict_stat_max_accesses is not set yet
+            //
+            //f_evict_stat_max_accesses_for_weight = f_maximum_accesses;
+            ep->set_maximum_access_count(f_maximum_accesses);
+        }
+        else
+        {
+            // TODO: this is not actually that great because the
+            //       cleanup thread may sleep hours between evictions
+            //       so the max. computed last time could be really old
+            //
+            //f_evict_stat_max_accesses_for_weight = f_evict_stat_max_accesses;
+            ep->set_maximum_access_count(f_evict_stat_max_accesses);
+        }
+
+        if(f_evict_stat_max_allocated == 0)
+        {
+            ep->set_maximum_byte_size(f_maximum_allocated);
+        }
+        else
+        {
+            ep->set_maximum_byte_size(f_evict_stat_max_allocated);
+        }
+
+        f_evict_stat_started_on = time(nullptr);
+
+        //f_evict_stat_latest_access_age_for_weight = ...
+        ep->set_access_age(f_evict_stat_started_on - magpie_start_time());
 
         f_evict_stat_max_accesses = 1;
+        f_evict_stat_max_allocated = 1; // assume cached objects are rarely all empty
 
         f_evict_stats_offset = snapdev::random(0UL, f_buckets.size() - 1UL);
 
@@ -721,18 +969,23 @@ bool cache_impl::evict_stats()
         // is reached
         //
         double const current_size(size());
-        double const eviction_trigger(f_count_limit * f_size_eviction_trigger_percent);
+        double const eviction_trigger(f_opts.get_count_limit() * f_size_eviction_trigger_percent);
         if(current_size >= eviction_trigger)
         {
             // add a little bit so by the time we start evicting we
             // get at least enough entries
             //
-            double const eviction_count(f_count_limit * f_size_eviction_reduction_percent + 10.0);
+            double const eviction_count(f_opts.get_count_limit() * (1.0 - f_size_eviction_reduction_percent) + 10.0);
             if(eviction_count > f_evict_smallest_weights_count)
             {
                 f_evict_smallest_weights_count = eviction_count;
             }
         }
+std::cerr << "--- evict_stats() count set to = "
+<< f_evict_smallest_weights_count
+<< " -- max access: " << f_evict_stat_max_accesses_for_weight
+//<< " -- latest access: " << f_evict_stat_latest_access_age_for_weight
+<< std::endl;
     }
 
     // the following allows us to walk all the buckets in a seemingly
@@ -744,34 +997,49 @@ bool cache_impl::evict_stats()
     std::size_t const index((f_evict_stats_index * EVICT_SWEEP_STRIDE + f_evict_stats_offset) % f_buckets.size());
     bucket_t & bucket{ f_buckets[index] };
 
-    lock_guard lock(bucket.f_lock, false);
-
-    for(auto & e : bucket.f_entries)
     {
-        if(e.second.f_accesses > f_evict_stat_max_accesses)
+        lock_guard lock(bucket.f_lock, false);
+
+        for(auto & e : bucket.f_entries)
         {
-            f_evict_stat_max_accesses = e.second.f_accesses;
-        }
+            if(e.second.f_accesses > f_evict_stat_max_accesses)
+            {
+                f_evict_stat_max_accesses = e.second.f_accesses;
+            }
 
-        double weight(1.0);
+            // compute this item weight
+            //
+            //double weight(1.0);
+            //if(snapdev::quiet_floating_point_equal(f_opts.get_least_frequently_weight(),   0.0))
+            //{
+            //    weight *= e.second.f_accesses / f_evict_stat_max_accesses_for_weight;
+            //}
+            //if(snapdev::quiet_floating_point_equal(f_opts.get_least_recently_weight(), 0.0))
+            //{
+            //    weight *= (e.second.f_last_access - magpie_start_time()) / f_evict_stat_latest_access_age_for_weight;
+            //}
+            ep->set_access_count(e.second.f_accesses);
+            ep->set_last_access(e.second.f_last_access);
+            ep->set_byte_size(e.second.f_allocated);
+            ep->set_item_age(f_evict_stat_started_on - e.second.f_created_on);
+            double const weight(ep->compute_weight());
 
-        // compute our weights
-        //
-        weight *= e.second.f_accesses / f_evict_stat_max_accesses_for_weight;
-        weight *= (e.second.f_last_access - g_start_time) / f_evict_stat_latest_access_age_for_weight;
-
-        std::size_t const allocated(f_parent->allocated(e.second.f_value, e.second.f_size));
-
-        if(f_evict_smallest_weights.size() < f_evict_smallest_weights_count)
-        {
-            f_evict_smallest_weights.emplace(e.first, weight, allocated);
-        }
-        else if(weight < f_evict_smallest_weights.rbegin()->f_weight)
-        {
-            f_evict_smallest_weights.erase(std::prev(f_evict_smallest_weights.end()));
-            f_evict_smallest_weights.emplace(e.first, weight, allocated);
+            if(f_evict_smallest_weights.size() < f_evict_smallest_weights_count)
+            {
+                f_evict_smallest_weights.emplace(e.first, weight, e.second.f_allocated);
+            }
+            else if(weight < f_evict_smallest_weights.rbegin()->f_weight)
+            {
+                f_evict_smallest_weights.erase(std::prev(f_evict_smallest_weights.end()));
+                f_evict_smallest_weights.emplace(e.first, weight, e.second.f_allocated);
+            }
         }
     }
+std::cerr << "--- evict_stats() smallest weight: " << f_evict_smallest_weights.size() << std::endl;
+//for(auto const & e : f_evict_smallest_weights)
+//{
+//    std::cerr << "  " << e.f_weight
+//}
 
     ++f_evict_stats_index;
     if(f_evict_stats_index >= f_buckets.size())
@@ -789,13 +1057,13 @@ bool cache_impl::evict_organize_by_bucket()
     std::size_t current_count(size());
     std::size_t current_allocated(allocated());
 
-    std::size_t count_limit(f_count_limit * f_size_eviction_reduction_percent);
-    std::size_t capacity_limit(f_capacity_limit * f_size_eviction_reduction_percent);
+    std::size_t count_limit(f_opts.get_count_limit() * f_size_eviction_reduction_percent);
+    std::size_t capacity_limit(f_opts.get_capacity_limit() * f_size_eviction_reduction_percent);
 
     auto need_more_evictions([count_limit, capacity_limit, &current_count, &current_allocated]()
         {
-            return current_count > count_limit
-                || current_allocated > capacity_limit;
+            return (count_limit > 0 && current_count > count_limit)
+                || (capacity_limit > 0 && current_allocated > capacity_limit);
         });
 
     if(!need_more_evictions())
@@ -810,7 +1078,7 @@ bool cache_impl::evict_organize_by_bucket()
             break;
         }
 
-        std::size_t const bucket_idx(static_cast<std::uint64_t>(e.f_hash) % f_buckets.size());
+        std::size_t const bucket_idx(get_bucket_index(e.f_hash));
         f_targets_by_bucket[bucket_idx].push_back(e.f_hash);
 
         --current_count;
@@ -835,29 +1103,65 @@ bool cache_impl::evict()
 {
     if(!f_targets_by_bucket.empty())
     {
+        std::size_t count_limit(f_opts.get_count_limit() * f_size_eviction_reduction_percent);
+        std::size_t capacity_limit(f_opts.get_capacity_limit() * f_size_eviction_reduction_percent);
+
+        auto need_more_evictions([this, count_limit, capacity_limit]()
+            {
+                return (count_limit > 0 && this->f_current_count_usage > count_limit)
+                    || (capacity_limit > 0 && this->f_current_capacity_usage > capacity_limit);
+            });
+
         auto bucket_it(f_targets_by_bucket.begin());
         std::size_t const bucket_idx(bucket_it->first);
         bucket_t & bucket{ f_buckets[bucket_idx] };
 
-        // -------------------- LOCK --------------------
-        lock_guard lock(bucket.f_lock, true);
-
-        for(auto & h : bucket_it->second)
+std::cerr << "--- evict from bucket: " << bucket_idx << " (" << f_targets_by_bucket.size() << "/" << bucket_it->second.size() << "/" << f_current_count_usage << "/" << f_eviction_counter << ")\n";
+std::cerr << "--- evict need more eviction? "
+    << f_current_count_usage << " > " << count_limit
+    << " and "
+    << f_current_capacity_usage << " > " << capacity_limit
+    << "\n";
+        bool done(false);
         {
-            // WARNING: at the moment, the locks are considered non-recursive
-            //          because the rwlock is not--so calling erase(h) from
-            //          here would end up in a deadlock
-            //
-            auto it(bucket.f_entries.find(h));
-            if(it == bucket.f_entries.end())
+            // -------------------- LOCK --------------------
+            lock_guard lock(bucket.f_lock, true);
+
+            for(auto & h : bucket_it->second)
             {
-                return false;
+                if(!need_more_evictions())
+                {
+                    done = true;
+                    break;
+                }
+
+                // WARNING: at the moment, the locks are considered non-recursive
+                //          because the rwlock is not--so calling erase(h) from
+                //          here would end up in a deadlock
+                //
+                auto it(bucket.f_entries.find(h));
+                if(it != bucket.f_entries.end())
+                {
+                    --f_current_count_usage;
+                    f_current_capacity_usage -= it->second.f_allocated;
+                    bucket.f_entries.erase(it);
+                    ++f_eviction_counter;
+                }
             }
-            --f_current_count_usage;
-            f_current_capacity_usage -= it->second.f_allocated;
-            bucket.f_entries.erase(it);
         }
-        f_targets_by_bucket.erase(f_targets_by_bucket.begin());
+
+        if(done)
+        {
+            // this happens if we had other evictions done by the
+            // user or other processes (i.e. purge_expired())
+            //
+            f_targets_by_bucket.clear();
+        }
+        else
+        {
+            f_targets_by_bucket.erase(bucket_it);
+        }
+std::cerr << "--- evicted from bucket: " << bucket_idx << " -- erased? (" << f_targets_by_bucket.size() << "/" << f_current_count_usage << "/" << f_eviction_counter << "/" << std::boolalpha << done << ")\n";
     }
 
     return f_targets_by_bucket.empty();
@@ -873,73 +1177,6 @@ lock_interface::pointer_t cache_impl::get_lock(hash_t h)
 
 
 
-cache_impl::item_t::item_t(
-          cache_interface * parent
-        , void const * value
-        , std::size_t size)
-    : f_parent(parent)
-    , f_size(size)
-{
-    f_value = malloc(f_size);
-    if(f_value == nullptr)
-    {
-        throw std::bad_alloc();
-    }
-    f_parent->copy(value, f_value, f_size);
-    f_allocated = f_parent->allocated(f_value, f_size);
-}
-
-
-cache_impl::item_t::item_t(item_t const & rhs)
-    : f_parent(rhs.f_parent)
-    , f_size(rhs.f_size)
-    , f_allocated(rhs.f_allocated)
-    , f_accesses(rhs.f_accesses)
-    , f_created_on(rhs.f_created_on)
-    , f_last_access(rhs.f_last_access)
-    , f_ttl(rhs.f_ttl)
-{
-    f_value = malloc(f_size);
-    if(f_value == nullptr)
-    {
-        throw std::bad_alloc();
-    }
-    f_parent->copy(rhs.f_value, f_value, f_size);
-}
-
-
-cache_impl::item_t::~item_t()
-{
-    f_parent->destroy(f_value, f_size);
-    free(f_value);
-}
-
-
-cache_impl::item_t const & cache_impl::item_t::operator = (item_t const & rhs)
-{
-    if(this != &rhs)
-    {
-        if(f_parent != rhs.f_parent)
-        {
-            throw logic_error("all the items in the cache must have the exact same parent.");
-        }
-        if(f_size != rhs.f_size)
-        {
-            throw logic_error("all the items in the cache must have the exact same size.");
-        }
-
-        f_parent->destroy(f_value, f_size);
-        f_parent->copy(rhs.f_value, f_value, f_size);
-
-        f_allocated = rhs.f_allocated;
-        f_accesses = rhs.f_accesses;
-        f_created_on = rhs.f_created_on;
-        f_last_access = rhs.f_last_access;
-        f_ttl = rhs.f_ttl;
-    }
-
-    return *this;
-}
 
 
 

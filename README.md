@@ -100,7 +100,7 @@ reached, etc.)
 
 ## Conditional Add
 
-Based on various parameters, trying to add a parameter to the cache may
+Based on various parameters, trying to add an item to the cache may
 _fail_. That is, the library may decide that the object is probably not
 worth keeping for any amount of time and never caches it.
 

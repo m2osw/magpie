@@ -24,6 +24,12 @@
  * initialized, changes to the settings are not permitted.
  */
 
+// self
+//
+#include    <magpie/eviction_policy.h>
+
+
+
 // C++
 //
 #include    <cstdint>
@@ -45,7 +51,10 @@ typedef std::int64_t            duration_t;
 constexpr duration_t const      NO_TTL = -2;
 constexpr duration_t const      DEFAULT_TTL = -1;
 constexpr duration_t const      NO_MAXIMUM_LIFETIME = 0;
+constexpr duration_t const      DEFAULT_CLEANUP_INTERVAL = 3600; // 1h
 
+constexpr std::size_t const     NO_LIMIT = 0;
+constexpr std::size_t const     DEFAULT_BUCKET_COUNT = 10;
 constexpr std::size_t const     MAX_BUCKET_COUNT = 10'000;
 constexpr std::int64_t const    EVICT_SWEEP_STRIDE = 10'007;
 
@@ -72,20 +81,27 @@ enum class stale_data_t
 class options
 {
 public:
-    void                    set_least_recently_used(bool const & lru);
-    bool                    get_least_recently_used() const;
-
-    void                    set_least_frequently_used(bool const & lfu);
-    bool                    get_least_frequently_used() const;
+    void                    set_eviction_policy(eviction_policy::pointer_t policy);
+    eviction_policy::pointer_t
+                            get_eviction_policy() const;
 
     void                    set_allow_empty_key(bool allowed);
     bool                    get_allow_empty_key() const;
 
-    void                    set_capacity(std::size_t maximum_byte_size);
-    std::size_t             get_capacity() const;
+    void                    set_refuse_data_once_full(bool refuse);
+    bool                    get_refuse_data_once_full() const;
 
-    void                    set_count(std::size_t maximum_count);
-    std::size_t             get_count() const;
+    void                    set_maximum_object_size(std::size_t maximum_object_size);
+    std::size_t             get_maximum_object_size() const;
+
+    void                    set_capacity_limit(std::size_t maximum_byte_size);
+    std::size_t             get_capacity_limit() const;
+
+    void                    set_count_limit(std::size_t maximum_count);
+    std::size_t             get_count_limit() const;
+
+    void                    set_bucket_count(std::size_t count);
+    std::size_t             get_bucket_count() const;
 
     void                    set_default_ttl(duration_t ttl);
     duration_t              get_default_ttl() const;
@@ -105,23 +121,19 @@ public:
     void                    set_stale_data(stale_data_t mode);
     stale_data_t            get_stale_data() const;
 
-    void                    set_bucket_count(std::size_t count);
-    std::size_t             get_bucket_count() const;
-
-    void                    set_refuse_data_once_full(bool refuse);
-    bool                    get_refuse_data_once_full() const;
-
 private:
-    bool                    f_lru = false;
-    bool                    f_lfu = false;
+    eviction_policy::pointer_t
+                            f_eviction_policy = eviction_policy::pointer_t();
+
     bool                    f_allow_empty_key = false;
-    bool                    f_refuse_data_once_full = false;
-    std::size_t             f_maximum_byte_size = 0;
-    std::size_t             f_maximum_count = 0;
-    std::size_t             f_bucket_count = 10;
+    bool                    f_refuse_data_once_full = true;
+    std::size_t             f_maximum_object_size = NO_LIMIT;
+    std::size_t             f_maximum_byte_size = NO_LIMIT;
+    std::size_t             f_maximum_count = NO_LIMIT;
+    std::size_t             f_bucket_count = DEFAULT_BUCKET_COUNT;
     duration_t              f_default_ttl = NO_TTL;
     duration_t              f_maximum_lifetime = NO_MAXIMUM_LIFETIME;
-    duration_t              f_cleanup_interval = 3600; // 1h by default
+    duration_t              f_cleanup_interval = DEFAULT_CLEANUP_INTERVAL;
     lock_model_t            f_lock_model = lock_model_t::LOCK_MODEL_MUTEX;
     timespec                f_wait_lock_for_stale_data_deletion = { 0, 4 };
     stale_data_t            f_stale_data = stale_data_t::STALE_DATA_DELETE;

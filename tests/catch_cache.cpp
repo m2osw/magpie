@@ -112,10 +112,15 @@ CATCH_TEST_CASE("cache", "[cache]")
                 // set a few values
                 //
                 int const v1(rand());
-                cache.set(k1, v1);
+                magpie::set_result_t status(cache.set(k1, v1));
                 if(repeat_set == 0)
                 {
                     ++count;
+                    CATCH_REQUIRE(magpie::set_result_t::SET_RESULT_ADDED == status);
+                }
+                else
+                {
+                    CATCH_REQUIRE(magpie::set_result_t::SET_RESULT_UPDATED == status);
                 }
                 CATCH_REQUIRE(count == cache.size());
 
@@ -126,14 +131,27 @@ CATCH_TEST_CASE("cache", "[cache]")
                     ++count;
                 }
                 int const v2(rand());
-                cache.set(k2, v2);
+                status = cache.set(k2, v2);
+                if(inserted.second)
+                {
+                    CATCH_REQUIRE(magpie::set_result_t::SET_RESULT_ADDED == status);
+                }
+                else
+                {
+                    CATCH_REQUIRE(magpie::set_result_t::SET_RESULT_UPDATED == status);
+                }
                 CATCH_REQUIRE(count == cache.size());
 
                 int const v3(rand());
-                cache.set(k3, v3);
+                status = cache.set(k3, v3);
                 if(repeat_set == 0)
                 {
                     ++count;
+                    CATCH_REQUIRE(magpie::set_result_t::SET_RESULT_ADDED == status);
+                }
+                else
+                {
+                    CATCH_REQUIRE(magpie::set_result_t::SET_RESULT_UPDATED == status);
                 }
                 CATCH_REQUIRE(count == cache.size());
 
@@ -277,6 +295,83 @@ CATCH_TEST_CASE("cache", "[cache]")
                 CATCH_REQUIRE(cache.get(std::string()).value() == v2);
                 CATCH_REQUIRE(cache.get(k3).value() == v3);
             }
+        }
+    }
+    CATCH_END_SECTION()
+
+    CATCH_START_SECTION("cache: object on its own is too large")
+    {
+        magpie::options opts;
+        opts.set_maximum_object_size(100);
+
+        magpie::cache<std::string, std::string> cache(opts);
+
+        std::string const k(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
+
+        // first value is valid, it sticks
+        //
+        std::string const v1(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
+        magpie::set_result_t status(cache.set(k, v1));
+        CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_ADDED);
+        CATCH_REQUIRE(cache.get(k).has_value());
+        CATCH_REQUIRE(cache.get(k).value() == v1);
+
+        // second value is too large, it doesn't get added and removes the old value
+        //
+        std::string const v2(SNAP_CATCH2_NAMESPACE::random_string(101, 200, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
+        status = cache.set(k, v2);
+        CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_REJECTED_TOO_LARGE);
+        CATCH_REQUIRE_FALSE(cache.get(k).has_value());
+    }
+    CATCH_END_SECTION()
+
+    CATCH_START_SECTION("cache: too many objects in the cache, more are not accepted")
+    {
+        magpie::options opts;
+        opts.set_count_limit(10);
+
+        magpie::cache<int, std::string> cache(opts);
+
+        for(int k(1); k <= 10; ++k)
+        {
+            std::string const v(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
+            magpie::set_result_t status(cache.set(k, v));
+            CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_ADDED);
+            CATCH_REQUIRE(cache.get(k).has_value());
+            CATCH_REQUIRE(cache.get(k).value() == v);
+            CATCH_REQUIRE(cache.size() == static_cast<std::size_t>(k));
+        }
+        for(int k(101); k <= 110; ++k)
+        {
+            std::string const v(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
+            magpie::set_result_t status(cache.set(k, v));
+            CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_REJECTED_COUNT);
+            CATCH_REQUIRE_FALSE(cache.get(k).has_value());
+            CATCH_REQUIRE(cache.size() == 10);
+        }
+
+        // however, updating existing items work
+        //
+        for(int k(1); k <= 10; ++k)
+        {
+            std::string const v(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
+            magpie::set_result_t status(cache.set(k, v));
+            CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_UPDATED);
+            CATCH_REQUIRE(cache.get(k).has_value());
+            CATCH_REQUIRE(cache.get(k).value() == v);
+            CATCH_REQUIRE(cache.size() == 10);
+        }
+
+        // however, if we delete one of the original, we can add more
+        {
+            cache.erase(3);
+            CATCH_REQUIRE(cache.size() == 9);
+            std::string const v(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
+            magpie::set_result_t status(cache.set(101, v));
+            CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_ADDED);
+            CATCH_REQUIRE(cache.get(101).has_value());
+            CATCH_REQUIRE(cache.get(101).value() == v);
+            CATCH_REQUIRE(cache.size() == 10);
         }
     }
     CATCH_END_SECTION()

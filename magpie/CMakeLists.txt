@@ -30,12 +30,14 @@ configure_file(
 add_library(${PROJECT_NAME} SHARED
     cache_impl.cpp
     cleanup_runner.cpp
+    eviction_policy.cpp
     lock_guard.cpp
     lock_interface.cpp
     lock_mutex.cpp
     lock_recursive_rwlock.cpp
     lock_rwlock.cpp
     options.cpp
+    utils.cpp
     version.cpp
 )
 

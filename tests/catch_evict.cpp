@@ -35,7 +35,7 @@
 
 // C++
 //
-#include    <set>
+#include    <random>
 
 
 // last include
@@ -80,23 +80,32 @@ constexpr models const g_lock_models[] =
 
 CATCH_TEST_CASE("evict_least_recent", "[thread]")
 {
-    CATCH_START_SECTION("evict_least_recent: create many items, watch that the least recently added are removed first")
+    CATCH_START_SECTION("evict_least_recent: create many items, watch that the least recently added are removed first (LFU only)")
     {
         // we are not supposed to be running anything at this point
         //
         CATCH_REQUIRE(cppthread::thread::get_running_threads() == 0);
 
-        constexpr int const     VALUES_COUNT = 2'000;
-        std::random_device      rd;
-        std::mt19937            g(rd());
+        constexpr std::size_t const VALUES_COUNT = 2'000;
+        std::random_device          rd;
+        std::mt19937                g(rd());
 
         for(std::size_t lock_model(0); lock_model < std::size(g_lock_models); ++lock_model)
         {
             magpie::options opts;
             opts.set_lock_model(g_lock_models[lock_model].f_mode);
-            opts.set_cleanup_interval(1);       // 1s
-            opts.set_least_recently_used(true);
-            opts.set_count(VALUES_COUNT / 2);
+            opts.set_default_ttl(90);           // 90 seconds
+            opts.set_cleanup_interval(3);       // 3s
+            opts.set_count_limit(VALUES_COUNT);
+
+            magpie::eviction_policy_add::pointer_t ep(std::make_shared<magpie::eviction_policy_add>());
+            ep->set_size_eviction_trigger_percent(0.95);
+            ep->set_size_eviction_reduction_percent(0.9);
+            ep->set_access_count_weight(0.0);
+            ep->set_recency_weight(1.0);
+            ep->set_byte_size_weight(0.0);
+            ep->set_age_weight(0.0);
+            opts.set_eviction_policy(ep);
 
             // construct
             //
@@ -107,45 +116,178 @@ CATCH_TEST_CASE("evict_least_recent", "[thread]")
             //
             CATCH_REQUIRE(cppthread::thread::get_running_threads() == 1);
 
+            // fill the cache to the count limit
+            //
             int pos[VALUES_COUNT];
-            for(;;)
+            for(std::size_t kv(1); kv <= VALUES_COUNT; ++kv)
             {
-                // set once
-                //
-                for(int kv(1); kv <= VALUES_COUNT; ++kv)
-                {
-                    cache->set(kv, kv);
-                    pos[kv - 1] = kv;
-                }
-                std::shuffle(pos, pos + VALUES_COUNT, g);
-
-                // read many times the first 50% (indexes from pos array)
-                //
-                for(int count(0); count < 5; ++count)
-                {
-                    std::cout << "--- lock mode: " << g_lock_models[lock_model].f_name << " -- check #" << count << " ---" << std::endl;
-
-                    // v1 should last 1h, so no issue here
-                    //
-                    for(int idx(0); idx < VALUES_COUNT / 2; ++idx)
-                    {
-                    std::optional<std::string> v(cache->get(pos[idx]));
-                    CATCH_REQUIRE(v.has_value());
-                    CATCH_REQUIRE(v.value() == v1);
-
-                    v = cache->get(k2);
-                    CATCH_REQUIRE(v.has_value());
-                    CATCH_REQUIRE(v.value() == v2);
-
-                    v = cache->get(k3);
-                    CATCH_REQUIRE(v.has_value());
-                    CATCH_REQUIRE(v.value() == v3);
-
-                    sleep(1);
-                }
-
-                break;
+                cache->set(kv, kv);
+                pos[kv - 1] = kv;
             }
+            std::shuffle(std::begin(pos), std::end(pos), g);
+
+            // mark the lowest values as hot by increasing their counters
+            // to 10 and make sure they do not disappear while doing so
+            //
+            for(int count(0); count < 10; ++count)
+            {
+                for(std::size_t idx(0); idx < VALUES_COUNT / 2; ++idx)
+                {
+                    std::optional<int> v(cache->get(pos[idx], true));
+                    CATCH_REQUIRE(v.has_value());
+                    CATCH_REQUIRE(v.value() == pos[idx]);
+                }
+            }
+
+            // read many times the first 50% (indexes from pos array)
+            //
+            for(int count(0); count < 10; ++count)
+            {
+                std::cout << "--- lock mode: " << g_lock_models[lock_model].f_name << " -- check #" << count << " ---" << std::endl;
+                std::cout << "--- current count: " << cache->size() << std::endl;
+
+                // v1 should last 1h, so no issue here
+                //
+                for(std::size_t idx(0); idx < VALUES_COUNT / 2; ++idx)
+                {
+                    for(int repeat(0); repeat < 3; ++repeat)
+                    {
+                        std::optional<int> v(cache->get(pos[idx], true));
+                        CATCH_REQUIRE(v.has_value());
+                        CATCH_REQUIRE(v.value() == pos[idx]);
+                    }
+                }
+
+                cache->verify_current_count();
+                cache->verify_current_capacity();
+                sleep(1);
+            }
+
+            std::size_t missing(0);
+            for(std::size_t idx(0); idx < std::size(pos); ++idx)
+            {
+                std::optional<int> v(cache->get(pos[idx], true));
+                if(!v.has_value())
+                {
+                    ++missing;
+                }
+                else
+                {
+                    CATCH_REQUIRE(v.value() == pos[idx]);
+                }
+            }
+            CATCH_REQUIRE(missing > VALUES_COUNT * (1.0 - 0.92)); // it should be closer to 0.9 than 0.92, but this is an approximation for the test
+
+            // done, everything gets destroyed
+            //
+            cache.reset();
+
+            CATCH_REQUIRE(cppthread::thread::get_running_threads() == 0);
+        }
+    }
+    CATCH_END_SECTION()
+}
+
+
+CATCH_TEST_CASE("evict_least_frequent", "[thread]")
+{
+    CATCH_START_SECTION("evict_least_frequent: create many items, watch that the least recently added are removed first (LFU only)")
+    {
+        // we are not supposed to be running anything at this point
+        //
+        CATCH_REQUIRE(cppthread::thread::get_running_threads() == 0);
+
+        constexpr std::size_t const VALUES_COUNT = 2'000;
+        std::random_device          rd;
+        std::mt19937                g(rd());
+
+        for(std::size_t lock_model(0); lock_model < std::size(g_lock_models); ++lock_model)
+        {
+            magpie::options opts;
+            opts.set_lock_model(g_lock_models[lock_model].f_mode);
+            opts.set_default_ttl(90);           // 90 seconds
+            opts.set_cleanup_interval(3);       // 3s
+            opts.set_count_limit(VALUES_COUNT);
+
+            magpie::eviction_policy_add::pointer_t ep(std::make_shared<magpie::eviction_policy_add>());
+            ep->set_size_eviction_trigger_percent(0.95);
+            ep->set_size_eviction_reduction_percent(0.9);
+            ep->set_access_count_weight(1.0);
+            ep->set_recency_weight(0.0);
+            ep->set_byte_size_weight(0.0);
+            ep->set_age_weight(0.0);
+            opts.set_eviction_policy(ep);
+
+            // construct
+            //
+            magpie::cache<int, int>::pointer_t cache(std::make_shared<magpie::cache<int, int>>(opts));
+
+            // having the least recently used flag on means a cleanup thread
+            // gets started by the constructor
+            //
+            CATCH_REQUIRE(cppthread::thread::get_running_threads() == 1);
+
+            // fill the cache to the count limit
+            //
+            int pos[VALUES_COUNT];
+            for(std::size_t kv(1); kv <= VALUES_COUNT; ++kv)
+            {
+                cache->set(kv, kv);
+                pos[kv - 1] = kv;
+            }
+            std::shuffle(std::begin(pos), std::end(pos), g);
+
+            // mark the lowest values as hot by increasing their counters
+            // to 10 and make sure they do not disappear while doing so
+            //
+            for(int count(0); count < 10; ++count)
+            {
+                for(std::size_t idx(0); idx < VALUES_COUNT / 2; ++idx)
+                {
+                    std::optional<int> v(cache->get(pos[idx], true));
+                    CATCH_REQUIRE(v.has_value());
+                    CATCH_REQUIRE(v.value() == pos[idx]);
+                }
+            }
+
+            // read many times the first 50% (indexes from pos array)
+            //
+            for(int count(0); count < 10; ++count)
+            {
+                std::cout << "--- lock mode: " << g_lock_models[lock_model].f_name << " -- check #" << count << " ---" << std::endl;
+                std::cout << "--- current count: " << cache->size() << std::endl;
+
+                // v1 should last 1h, so no issue here
+                //
+                for(std::size_t idx(0); idx < VALUES_COUNT / 2; ++idx)
+                {
+                    for(int repeat(0); repeat < 3; ++repeat)
+                    {
+                        std::optional<int> v(cache->get(pos[idx], true));
+                        CATCH_REQUIRE(v.has_value());
+                        CATCH_REQUIRE(v.value() == pos[idx]);
+                    }
+                }
+
+                cache->verify_current_count();
+                cache->verify_current_capacity();
+                sleep(1);
+            }
+
+            std::size_t missing(0);
+            for(std::size_t idx(0); idx < std::size(pos); ++idx)
+            {
+                std::optional<int> v(cache->get(pos[idx], true));
+                if(!v.has_value())
+                {
+                    ++missing;
+                }
+                else
+                {
+                    CATCH_REQUIRE(v.value() == pos[idx]);
+                }
+            }
+            CATCH_REQUIRE(missing > VALUES_COUNT * (1.0 - 0.92)); // it should be closer to 0.9 than 0.92, but this is an approximation for the test
 
             // done, everything gets destroyed
             //

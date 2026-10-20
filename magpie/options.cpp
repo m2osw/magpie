@@ -50,27 +50,15 @@ namespace magpie
 
 
 
-void options::set_least_recently_used(bool const & lru)
+void options::set_eviction_policy(eviction_policy::pointer_t policy)
 {
-    f_lru = lru;
+    f_eviction_policy = policy;
 }
 
 
-bool options::get_least_recently_used() const
+eviction_policy::pointer_t options::get_eviction_policy() const
 {
-    return f_lru;
-}
-
-
-void options::set_least_frequently_used(bool const & lfu)
-{
-    f_lfu = lfu;
-}
-
-
-bool options::get_least_frequently_used() const
-{
-    return f_lfu;
+    return f_eviction_policy;
 }
 
 
@@ -86,25 +74,37 @@ bool options::get_allow_empty_key() const
 }
 
 
-void options::set_capacity(std::size_t maximum_byte_size)
+void options::set_maximum_object_size(std::size_t maximum_object_size)
+{
+    f_maximum_object_size = maximum_object_size;
+}
+
+
+std::size_t options::get_maximum_object_size() const
+{
+    return f_maximum_object_size;
+}
+
+
+void options::set_capacity_limit(std::size_t maximum_byte_size)
 {
     f_maximum_byte_size = maximum_byte_size;
 }
 
 
-std::size_t options::get_capacity() const
+std::size_t options::get_capacity_limit() const
 {
     return f_maximum_byte_size;
 }
 
 
-void options::set_count(std::size_t maximum_count)
+void options::set_count_limit(std::size_t maximum_count)
 {
     f_maximum_count = maximum_count;
 }
 
 
-std::size_t options::get_count() const
+std::size_t options::get_count_limit() const
 {
     return f_maximum_count;
 }

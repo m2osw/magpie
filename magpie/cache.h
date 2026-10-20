@@ -69,61 +69,14 @@ public:
     typedef std::shared_ptr<cache>      pointer_t;
 
     cache(options const & opts)
-        : f_impl(std::make_shared<detail::cache_impl>(
-                  this
-                , opts.get_bucket_count()
-                , opts.get_lock_model()))
+        : f_impl(std::make_shared<detail::cache_impl>(this, opts))
     {
-        if(opts.get_least_recently_used())
-        {
-            f_impl->set_least_recently_used();
-        }
-
-        if(opts.get_default_ttl() != NO_TTL)
-        {
-            f_impl->set_default_ttl(opts.get_default_ttl());
-        }
-
-        if(opts.get_maximum_lifetime() != NO_MAXIMUM_LIFETIME)
-        {
-            f_impl->set_maximum_lifetime(opts.get_maximum_lifetime());
-        }
-
-        if(opts.get_least_frequently_used())
-        {
-            f_impl->set_least_frequently_used();
-        }
-
         f_allow_empty_key = opts.get_allow_empty_key();
 
-        f_impl->set_wait_lock_for_stale_data_deletion(opts.get_wait_lock_for_stale_data_deletion());
-        f_impl->set_stale_data(opts.get_stale_data());
-
-        if(opts.get_cleanup_interval() > 0)
-        {
-            f_impl->set_cleanup_interval(opts.get_cleanup_interval());
-        }
-
-        std::size_t const capacity(opts.get_capacity());
-        if(capacity != 0)
-        {
-            if constexpr (!has_capacity<T>)
-            {
-                throw incompatible_type("type is missing a capacity() function.");
-            }
-            f_impl->set_capacity(capacity);
-        }
-
-        std::size_t const count(opts.get_count());
-        if(count != 0)
-        {
-            if constexpr (!has_size<T>)
-            {
-                throw incompatible_type("type is missing a size() function.");
-            }
-            f_impl->set_count(count);
-        }
-
+        // the following CANNOT be placed in the header because the
+        // shared pointer is necessary before the start_cleanup_worker()
+        // can be called
+        //
         if(f_impl->is_cleanup_worker_required())
         {
             f_impl->start_cleanup_worker();
@@ -137,7 +90,7 @@ public:
 
     }
 
-    bool set(K const & k, T const & t, duration_t ttl = DEFAULT_TTL)
+    set_result_t set(K const & k, T const & t, duration_t ttl = DEFAULT_TTL)
     {
         if(!f_allow_empty_key
         && key_size(k) == 0)
@@ -148,12 +101,17 @@ public:
         return f_impl->set(hash_key(k), &t, sizeof(T), ttl);
     }
 
-    bool contains(K const & k) const
+    bool erase(K const & k)
+    {
+        return f_impl->erase(hash_key(k));
+    }
+
+    [[nodiscard]] bool contains(K const & k) const
     {
         return f_impl->contains(hash_key(k));
     }
 
-    std::optional<T> get(K const & k, bool update_ttl = true) const
+    [[nodiscard]] std::optional<T> get(K const & k, bool update_ttl = false) const
     {
         return get_impl(hash_key(k), update_ttl);
     }
@@ -168,7 +126,7 @@ public:
         return cache_ref<K, T>(this, hash_key(k));
     }
 
-    metadata_t get_metadata(K const & k) const
+    [[nodiscard]] metadata_t get_metadata(K const & k) const
     {
         return f_impl->get_metadata(k);
     }
@@ -218,7 +176,7 @@ public:
             throw logic_error("size of T and size of object to be copied do not match."); // LCOV_EXCL_LINE
         }
 
-//std::cout << gettid() << ": --- COPY AN OBJECT " << reinterpret_cast<void const *>(this) << " :: " << in << " -> " << out << " ---" << std::endl;
+//std::cerr << gettid() << ": --- COPY AN OBJECT " << reinterpret_cast<void const *>(this) << " :: " << in << " -> " << out << " ---" << std::endl;
         std::construct_at(reinterpret_cast<T *>(out), *reinterpret_cast<T const *>(in));
     }
 
@@ -228,7 +186,7 @@ public:
         {
             throw logic_error("size of T and size of object to be destroyed do no match."); // LCOV_EXCL_LINE
         }
-//std::cout << gettid() << ": --- DESTROY AN OBJECT " << reinterpret_cast<void const *>(this) << " :: " << value << " ---" << std::endl;
+//std::cerr << gettid() << ": --- DESTROY AN OBJECT " << reinterpret_cast<void const *>(this) << " :: " << value << " ---" << std::endl;
         T * v(reinterpret_cast<T *>(value));
         std::destroy_at(v);
     }
@@ -242,6 +200,18 @@ public:
     {
         return f_impl->allocated();
     }
+
+#ifdef _DEBUG
+    void verify_current_count()
+    {
+        f_impl->verify_current_count();
+    }
+
+    void verify_current_capacity()
+    {
+        f_impl->verify_current_capacity();
+    }
+#endif
 
     virtual std::size_t allocated(void const * value, std::size_t size) const override
     {

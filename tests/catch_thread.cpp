@@ -182,8 +182,11 @@ std::cout << gettid() << ": --- MAIN THREAD ---" << std::endl;
 
             // construct
             //
+std::cout << gettid() << ": --- create 3 caches ---" << std::endl;
             magpie::cache<int, int>::pointer_t cache1(std::make_shared<magpie::cache<int, int>>(opts));
+std::cout << gettid() << ": --- create 2 more caches ---" << std::endl;
             magpie::cache<int, int>::pointer_t cache2(std::make_shared<magpie::cache<int, int>>(opts));
+std::cout << gettid() << ": --- create 1 more cache ---" << std::endl;
             magpie::cache<int, int>::pointer_t cache3(std::make_shared<magpie::cache<int, int>>(opts));
 
             // having a TTL which is not magpie::NO_TTL triggers the
@@ -202,6 +205,7 @@ std::cout << gettid() << ": --- MAIN THREAD ---" << std::endl;
                 int const v2(rand());
                 int const v3(rand());
 
+std::cout << gettid() << ": --- 3 caches 3 set()" << std::endl;
                 cache1->set(k1, v1);
                 cache2->set(k2, v2);
                 cache3->set(k3, v3);
@@ -224,6 +228,7 @@ std::cout << gettid() << ": --- MAIN THREAD ---" << std::endl;
             // done, everything gets destroyed
             // but the thread stays until the last cache gets deleted
             //
+std::cout << gettid() << ": --- 3 caches reset()" << std::endl;
             cache1.reset();
             CATCH_REQUIRE(cppthread::thread::get_running_threads() == 1);
 

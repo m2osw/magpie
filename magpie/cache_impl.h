@@ -43,11 +43,12 @@
 
 // snapdev
 //
-//#include    <snapdev/not_used.h>
+#include    <snapdev/math.h>
 
 
 // C++
 //
+#include    <atomic>
 #include    <map>
 #include    <mutex>
 #include    <set>
@@ -79,7 +80,21 @@ struct metadata_t
     time_t                  f_created_on = time_t();
     time_t                  f_last_access = time_t();
     time_t                  f_stale_at = time_t();
+    time_t                  f_timeout = time_t();
     duration_t              f_ttl = NO_TTL;
+};
+
+
+enum class set_result_t
+{
+    SET_RESULT_ADDED,
+    SET_RESULT_UPDATED,
+    SET_RESULT_REJECTED_CAPACITY,
+    SET_RESULT_REJECTED_COUNT,
+    SET_RESULT_REJECTED_TOO_LARGE,
+    SET_RESULT_REJECTED_EXPIRED,
+
+    SET_RESULT_OTHER,
 };
 
 
@@ -103,23 +118,25 @@ private:
     {
         typedef std::map<hash_t, item_t>        map_t;
 
-                                item_t(
-                                      cache_interface * parent
-                                    , void const * value
-                                    , std::size_t size);
+                                item_t(cache_interface * parent);
                                 item_t(item_t const & rhs);
                                 ~item_t();
+
+        void                    set_value(void const * value, std::size_t size);
 
         item_t const &          operator = (item_t const & rhs);
 
         cache_interface *       f_parent = nullptr;             // to call the copy operator
-        std::size_t             f_size = 0;                     // size of the object
         void *                  f_value = nullptr;              // a copy of the user's object
+        std::size_t             f_size = 0;                     // size of the object
         std::size_t             f_allocated = 0;                // amount of memory used by this object
-        std::uint64_t           f_accesses = 1;                 // number of time the item was accessed
         time_t                  f_created_on = time_t();        // the time when the object was created
-        time_t                  f_last_access = time_t();       // last time this very object was accessed (set or get)
-        duration_t              f_ttl = duration_t();           // f_created_on + f_ttl is when value becomes stale
+        duration_t              f_ttl = duration_t();           // ttl to update f_timeout when update_ttl is true
+
+        std::atomic<std::uint64_t>
+                                f_accesses = 1;                 // number of time the item was accessed
+        std::atomic<time_t>     f_last_access = time_t();       // last time this very object was accessed (set or get)
+        std::atomic<time_t>     f_timeout = time_t();           // (f_created_on | f_last_access) + f_ttl -- when value becomes stale
     };
 
 public:
@@ -128,25 +145,15 @@ public:
 
                             cache_impl(
                                       cache_interface * parent
-                                    , std::size_t bucket_count
-                                    , lock_model_t lock_model);
+                                    , options const & opts);
                             cache_impl(cache_impl const &) = delete;
 
     cache_impl &            operator = (cache_impl const &) = delete;
 
     static hash_t           hash_key(void const * key, std::size_t size);
-    void                    set_least_recently_used();
-    void                    set_least_frequently_used();
-    void                    set_capacity(std::size_t capacity);
-    void                    set_count(std::size_t count);
-    void                    set_default_ttl(duration_t ttl);
-    void                    set_maximum_lifetime(duration_t ttl);
-    void                    set_cleanup_interval(duration_t interval);
+    void                    set_capacity_limit(std::size_t capacity);
+    void                    set_count_limit(std::size_t count);
     duration_t              get_cleanup_interval() const;
-    void                    set_wait_lock_for_stale_data_deletion(timespec const & max_wait);
-    void                    set_stale_data(stale_data_t mode);
-    bool                    is_cleanup_worker_required() const;
-    void                    start_cleanup_worker();
     void                    cache_done();
     std::size_t             size() const;
     bool                    is_limit_count_reached() const;
@@ -154,9 +161,8 @@ public:
     bool                    is_capacity_reached() const;
     bool                    item_timed_out(item_t const & item) const;
     std::size_t             get_bucket_index(hash_t h) const;
-    void                    release();
 
-    bool                    set(
+    set_result_t            set(
                                   hash_t h
                                 , void const * value
                                 , std::size_t value_size
@@ -182,6 +188,14 @@ public:
     lock_interface::pointer_t
                             get_lock(hash_t h);
 
+#ifdef _DEBUG
+    void                    verify_current_count();
+    void                    verify_current_capacity();
+#endif
+
+    bool                    is_cleanup_worker_required() const;
+    void                    start_cleanup_worker();
+
 private:
     struct bucket_t
     {
@@ -198,7 +212,8 @@ private:
     {
         bool operator < (evict_item_t const & rhs) const
         {
-            return f_hash < rhs.f_hash;
+            return f_weight < rhs.f_weight
+                || (snapdev::quiet_floating_point_equal(f_weight, rhs.f_weight) && f_hash < rhs.f_hash);
         }
 
         hash_t                  f_hash = hash_t();
@@ -214,34 +229,35 @@ private:
                                         organized_evict_items_t;
 
     cache_interface *       f_parent = nullptr;
+    options const           f_opts;
     bucket_t::vector_t      f_buckets = bucket_t::vector_t();
-    bool                    f_least_recently_used = false;
-    bool                    f_least_frequently_used = false;
-    std::size_t             f_capacity_limit = 0;
-    std::size_t             f_count_limit = 0;
-    std::size_t             f_current_capacity_usage = 0;
-    std::size_t             f_current_count_usage = 0;
+    std::atomic<std::size_t>
+                            f_current_capacity_usage = 0;
+    std::atomic<std::size_t>
+                            f_current_count_usage = 0;
+    std::atomic<std::uint64_t>
+                            f_maximum_accesses = 1;
+    std::atomic<std::uint64_t>
+                            f_maximum_allocated = 1;
     std::size_t             f_purge_index = 0;
     std::size_t             f_evict_stats_index = 0;
     std::size_t             f_evict_stats_offset = 0;
-    std::uint64_t           f_evict_stat_max_accesses = 1;
-    double                  f_evict_stat_max_accesses_for_weight = 1.0;
+    std::uint64_t           f_evict_stat_max_accesses = 0;
+    std::uint64_t           f_evict_stat_max_allocated = 0;
+    time_t                  f_evict_stat_started_on = 0;
+    double                  f_evict_stat_max_accesses_for_weight = 0.0;
     double                  f_evict_stat_latest_access_age_for_weight = time(nullptr);
     double                  f_size_eviction_trigger_percent = 0.95;
     double                  f_size_eviction_reduction_percent = 0.9;
     std::size_t             f_evict_smallest_weights_count = 0;
     smallest_evict_item_t   f_evict_smallest_weights = smallest_evict_item_t();
     organized_evict_items_t f_targets_by_bucket = organized_evict_items_t();
-    duration_t              f_default_ttl = NO_TTL;
-    duration_t              f_maximum_lifetime = NO_MAXIMUM_LIFETIME;
-    duration_t              f_cleanup_interval = 3600;
-    timespec                f_wait_lock_for_stale_data_deletion = timespec();
-    stale_data_t            f_stale_data = stale_data_t::STALE_DATA_DELETE;
     std::once_flag          f_thread_started = std::once_flag();
 
     // statistics
     //
     std::uint64_t           f_purged_counter = 0;
+    std::uint64_t           f_eviction_counter = 0;
 };
 
 
