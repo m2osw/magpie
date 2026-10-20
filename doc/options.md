@@ -39,7 +39,6 @@ usual for most algorithms.
 
 Finally, an algorithm is applied to mix the two values together:
 
-|----------------|-----------------|------------------------------------------------|--------------------|
 | Strategy Flag  |   Logic Type    |           Who does it protect most?            | Vibe / Personality |
 |----------------|-----------------|------------------------------------------------|--------------------|
 | ADD            | Balanced OR     | Both, but favors extreme highs.                | Fair & steady      |
@@ -48,7 +47,6 @@ Finally, an algorithm is applied to mix the two values together:
 | MAXIMUM        | Pure OR         | Equal protection for the fresh and the famous. | Ultra-protective   |
 | GEOMETRIC MEAN | Aggressive AND  | Balance which item to use.                     | Weighted ruthless  |
 | HARMONIC MEAN  | Fair AND        | Gently penalizes the weakest metric.           | Pessimistic        |
-|----------------|-----------------|------------------------------------------------|--------------------|
 
 The geometric means uses the weights as powers:
 
