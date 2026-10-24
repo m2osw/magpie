@@ -79,3 +79,34 @@ In the geometric approach, you use the inverse instead:
     result = ---------------------------------------------------------
                                  size ** size_weight
 
+### Timestamps
+
+The algorithms have access to many Unix timestamps (`time_t`).
+
+    ---+----+----+----+----+----+----+----+----+----... future ...
+       |    |    |    |    |    |    |    |    |
+       |    |    |    |    |    |    |    |    +---> [P] item purge time (f_timeout) -- item being weighted
+       |    |    |    |    |    |    |    |
+       |    |    |    |    |    |    |    +---> [E] eviction start time (f_cycle_started_on) -- per cycle
+       |    |    |    |    |    |    |
+       |    |    |    |    |    |    +---> [U] last item update (f_most_recent_item_update) -- one specific item per cycle
+       |    |    |    |    |    |
+       |    |    |    |    |    +---> [T] item last touched (f_last_touched_on) -- item being weighted
+       |    |    |    |    |
+       |    |    |    |    +---> [L] item last updaed (f_last_updated_on) -- item being weighted
+       |    |    |    |
+       |    |    |    +---> [O] oldest update (f_oldest_item_update) -- one specific item per cycle
+       |    |    |
+       |    |    +---> [C] item created on (f_item_created_on) -- item being weighted
+       |    |
+       |    +---> [F] first created item (f_oldest_item_created_on) -- one specific item per cycle
+       |
+       +---> [S] application start time -- magpie_start_time() -- application wide
+
+The order is what is most likely. In this drawing, the interval between
+each item is kept equal, but it is not the case in the real world. Not
+only that, since item specific timestamp can be updated **after** a
+new eviction start time cycle starts, it can actually appear after
+that time (i.e. `f_cycle_started_on < f_most_recent_item_update` can
+be true).
+

@@ -54,6 +54,7 @@ constexpr duration_t const      NO_MAXIMUM_LIFETIME = 0;
 constexpr duration_t const      DEFAULT_CLEANUP_INTERVAL = 3600; // 1h
 
 constexpr std::size_t const     NO_LIMIT = 0;
+constexpr std::size_t const     NO_DECAY = 0;
 constexpr std::size_t const     DEFAULT_BUCKET_COUNT = 10;
 constexpr std::size_t const     MAX_BUCKET_COUNT = 10'000;
 constexpr std::int64_t const    EVICT_SWEEP_STRIDE = 10'007;
@@ -94,10 +95,16 @@ public:
     void                    set_maximum_object_size(std::size_t maximum_object_size);
     std::size_t             get_maximum_object_size() const;
 
-    void                    set_capacity_limit(std::size_t maximum_byte_size);
+    void                    set_capacity_limit(std::size_t maximum_allocated);
     std::size_t             get_capacity_limit() const;
 
-    void                    set_count_limit(std::size_t maximum_count);
+    void                    set_maximum_access_count(std::size_t maximum_count);
+    std::size_t             get_maximum_access_count() const;
+
+    void                    set_access_count_decay(std::size_t decay);
+    std::size_t             get_access_count_decay() const;
+
+    void                    set_count_limit(std::size_t count_limit);
     std::size_t             get_count_limit() const;
 
     void                    set_bucket_count(std::size_t count);
@@ -128,8 +135,10 @@ private:
     bool                    f_allow_empty_key = false;
     bool                    f_refuse_data_once_full = true;
     std::size_t             f_maximum_object_size = NO_LIMIT;
-    std::size_t             f_maximum_byte_size = NO_LIMIT;
-    std::size_t             f_maximum_count = NO_LIMIT;
+    std::size_t             f_maximum_allocated = NO_LIMIT;
+    std::size_t             f_maximum_access_count = NO_LIMIT;
+    std::size_t             f_access_count_decay = NO_DECAY;
+    std::size_t             f_count_limit = NO_LIMIT;
     std::size_t             f_bucket_count = DEFAULT_BUCKET_COUNT;
     duration_t              f_default_ttl = NO_TTL;
     duration_t              f_maximum_lifetime = NO_MAXIMUM_LIFETIME;

@@ -96,6 +96,7 @@ private:
         bool                        f_active = false;
         bool                        f_purge_expired = false;
         bool                        f_evict_stats = false;
+        bool                        f_evict_weights = false;
         bool                        f_evict_organize_by_bucket = false;
         bool                        f_evict = false;
     };
@@ -114,6 +115,7 @@ private:
     bool                        purge_expired(tracker_t &t);
     bool                        evict_stats_needed(tracker_t &t);
     bool                        evict_stats(tracker_t &t);
+    bool                        evict_weights(tracker_t &t);
     bool                        evict_organize_by_bucket(tracker_t &t);
     bool                        evict(tracker_t & t);
 

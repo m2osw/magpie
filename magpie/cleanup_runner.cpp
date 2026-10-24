@@ -36,7 +36,7 @@
 
 // snapdev
 //
-//#include    <snapdev/not_used.h>
+#include    <snapdev/safe_assert.h>
 
 
 // last include
@@ -113,11 +113,8 @@ void cleanup_runner::run()
         if(!wakeup_at
         || wakeup_at <= now)
         {
-std::cerr << "--- call cleanup_caches()!\n";
             cleanup_caches();
-std::cerr << "--- cleanup_caches() returned!\n";
         }
-else std::cerr << "--- skip cleanup_caches() call?!\n";
 
         if(all_caches_removed())
         {
@@ -125,13 +122,6 @@ else std::cerr << "--- skip cleanup_caches() call?!\n";
             //
             break;
         }
-
-        //if(cleanup_removed_caches())
-        //{
-        //    // no more caches to manage
-        //    //
-        //    break;
-        //}
     }
 }
 
@@ -265,79 +255,115 @@ void cleanup_runner::cleanup_caches()
     {
         f_caches_cleanup_it = f_caches.begin();
     }
-    if(f_caches_cleanup_it != f_caches.end())
+    if(f_caches_cleanup_it == f_caches.end())
     {
-        if(!(*f_caches_cleanup_it)->f_active)
-        {
-            if((*f_caches_cleanup_it)->f_next_cleanup <= snapdev::now())
-            {
-                (*f_caches_cleanup_it)->f_active = true;
-                (*f_caches_cleanup_it)->f_purge_expired = true;
-                (*f_caches_cleanup_it)->f_evict_stats = evict_stats_needed(**f_caches_cleanup_it);
-                (*f_caches_cleanup_it)->f_evict = false;
-            }
-        }
-        if((*f_caches_cleanup_it)->f_active)
-        {
-            if((*f_caches_cleanup_it)->f_purge_expired)
-            {
-std::cerr << "--- cleanup_caches() -> purge expired check\n";
-                if(purge_expired(**f_caches_cleanup_it))
-                {
-std::cerr << "--- cleanup_caches() -> purge expired done\n";
-                    (*f_caches_cleanup_it)->f_purge_expired = false;
-                }
-else std::cerr << "--- cleanup_caches() -> purge expired returned\n";
-            }
-
-            if((*f_caches_cleanup_it)->f_evict_stats)
-            {
-std::cerr << "--- cleanup_caches() -> evict stats check\n";
-                if(evict_stats(**f_caches_cleanup_it))
-                {
-std::cerr << "--- cleanup_caches() -> evict stats done\n";
-                    (*f_caches_cleanup_it)->f_evict_stats = false;
-                    (*f_caches_cleanup_it)->f_evict_organize_by_bucket = true;
-                }
-else std::cerr << "--- cleanup_caches() -> evict stats returned\n";
-            }
-
-            if((*f_caches_cleanup_it)->f_evict_organize_by_bucket)
-            {
-std::cerr << "--- cleanup_caches() -> evict organizing...\n";
-                if(evict_organize_by_bucket(**f_caches_cleanup_it))
-                {
-std::cerr << "--- cleanup_caches() -> evict organizing done...\n";
-                    (*f_caches_cleanup_it)->f_evict_organize_by_bucket = false;
-                    (*f_caches_cleanup_it)->f_evict = true;
-                }
-else std::cerr << "--- cleanup_caches() -> evict organizing returned...\n";
-            }
-
-            if((*f_caches_cleanup_it)->f_evict)
-            {
-std::cerr << "--- cleanup_caches() -> evict now!\n";
-                if(evict(**f_caches_cleanup_it))
-                {
-std::cerr << "--- cleanup_caches() -> evict now done\n";
-                    (*f_caches_cleanup_it)->f_evict = false;
-                }
-else std::cerr << "--- cleanup_caches() -> evict now return\n";
-            }
-
-            if(!(*f_caches_cleanup_it)->f_purge_expired
-            && !(*f_caches_cleanup_it)->f_evict_stats
-            && !(*f_caches_cleanup_it)->f_evict_organize_by_bucket
-            && !(*f_caches_cleanup_it)->f_evict)
-            {
-std::cerr << "--- cleanup_caches() -> loop done, reset state.\n";
-                (*f_caches_cleanup_it)->f_active = false;
-                (*f_caches_cleanup_it)->compute_next_cleanup();
-            }
-else std::cerr << "--- cleanup_caches() -> returning, state is still active...\n";
-        }
+        // no caches to manage
+        //
+        return;
     }
-else std::cerr << "--- cleanup_caches() -> no caches to clean up...\n";
+
+    if(!(*f_caches_cleanup_it)->f_active)
+    {
+        if((*f_caches_cleanup_it)->f_next_cleanup > snapdev::now())
+        {
+            // cache does not need eviction yet
+            //
+            return;
+        }
+
+        // activate this cache eviction
+        //
+        (*f_caches_cleanup_it)->f_active = true;
+
+        // unless something goes wrong the following should all be false
+        // when f_active is false
+        //
+        snapdev::SAFE_ASSERT(!(*f_caches_cleanup_it)->f_purge_expired,            "f_purge_expired should be false when activating a cache eviction.");
+        snapdev::SAFE_ASSERT(!(*f_caches_cleanup_it)->f_evict_stats,              "f_evict_stats should be false when activating a cache eviction.");
+        snapdev::SAFE_ASSERT(!(*f_caches_cleanup_it)->f_evict_weights,            "f_evict_weights should be false when activating a cache eviction.");
+        snapdev::SAFE_ASSERT(!(*f_caches_cleanup_it)->f_evict_organize_by_bucket, "f_evict_organize_by_bucket should be false when activating a cache eviction.");
+        snapdev::SAFE_ASSERT(!(*f_caches_cleanup_it)->f_evict,                    "f_evict should be false when activating a cache eviction.");
+
+        (*f_caches_cleanup_it)->f_purge_expired = true;
+        (*f_caches_cleanup_it)->f_evict_stats = evict_stats_needed(**f_caches_cleanup_it);
+        (*f_caches_cleanup_it)->f_evict_weights = false;
+        (*f_caches_cleanup_it)->f_evict_organize_by_bucket = false;
+        (*f_caches_cleanup_it)->f_evict = false;
+    }
+
+    // here f_active is always true
+    //
+    snapdev::SAFE_ASSERT((*f_caches_cleanup_it)->f_active, "f_active was expected to be true here.");
+
+    if((*f_caches_cleanup_it)->f_purge_expired)
+    {
+std::cerr << "--- cleanup_caches() -> purge expired check\n";
+        if(purge_expired(**f_caches_cleanup_it))
+        {
+std::cerr << "--- cleanup_caches() -> purge expired done\n";
+            (*f_caches_cleanup_it)->f_purge_expired = false;
+        }
+else std::cerr << "--- cleanup_caches() -> purge expired returned\n";
+    }
+
+    if((*f_caches_cleanup_it)->f_evict_stats)
+    {
+std::cerr << "--- cleanup_caches() -> evict stats check\n";
+        if(evict_stats(**f_caches_cleanup_it))
+        {
+std::cerr << "--- cleanup_caches() -> evict stats done\n";
+            (*f_caches_cleanup_it)->f_evict_stats = false;
+            (*f_caches_cleanup_it)->f_evict_weights = true;
+        }
+else std::cerr << "--- cleanup_caches() -> evict stats returned\n";
+    }
+
+    if((*f_caches_cleanup_it)->f_evict_weights)
+    {
+std::cerr << "--- cleanup_caches() -> evict weights computations\n";
+        if(evict_weights(**f_caches_cleanup_it))
+        {
+std::cerr << "--- cleanup_caches() -> evict weights done\n";
+            (*f_caches_cleanup_it)->f_evict_weights = false;
+            (*f_caches_cleanup_it)->f_evict_organize_by_bucket = true;
+        }
+else std::cerr << "--- cleanup_caches() -> evict weights returned\n";
+    }
+
+    if((*f_caches_cleanup_it)->f_evict_organize_by_bucket)
+    {
+std::cerr << "--- cleanup_caches() -> evict organizing...\n";
+        if(evict_organize_by_bucket(**f_caches_cleanup_it))
+        {
+std::cerr << "--- cleanup_caches() -> evict organizing done...\n";
+            (*f_caches_cleanup_it)->f_evict_organize_by_bucket = false;
+            (*f_caches_cleanup_it)->f_evict = true;
+        }
+else std::cerr << "--- cleanup_caches() -> evict organizing returned...\n";
+    }
+
+    if((*f_caches_cleanup_it)->f_evict)
+    {
+std::cerr << "--- cleanup_caches() -> evict now!\n";
+        if(evict(**f_caches_cleanup_it))
+        {
+std::cerr << "--- cleanup_caches() -> evict now done\n";
+            (*f_caches_cleanup_it)->f_evict = false;
+        }
+else std::cerr << "--- cleanup_caches() -> evict now return\n";
+    }
+
+    if(!(*f_caches_cleanup_it)->f_purge_expired
+    && !(*f_caches_cleanup_it)->f_evict_stats
+    && !(*f_caches_cleanup_it)->f_evict_weights
+    && !(*f_caches_cleanup_it)->f_evict_organize_by_bucket
+    && !(*f_caches_cleanup_it)->f_evict)
+    {
+std::cerr << "--- cleanup_caches() -> loop done, reset state.\n";
+        (*f_caches_cleanup_it)->f_active = false;
+        (*f_caches_cleanup_it)->compute_next_cleanup();
+    }
+else std::cerr << "--- cleanup_caches() -> returning, state is still active...\n";
 }
 
 
@@ -361,8 +387,8 @@ bool cleanup_runner::evict_stats_needed(tracker_t & t)
         return true;
     }
 
-    return cache->is_limit_count_reached()
-        || cache->is_capacity_reached();
+    return cache->is_limit_count_reached(false)
+        || cache->is_capacity_reached(false);
 }
 
 
@@ -375,6 +401,18 @@ bool cleanup_runner::evict_stats(tracker_t & t)
     }
 
     return cache->evict_stats();
+}
+
+
+bool cleanup_runner::evict_weights(tracker_t & t)
+{
+    cache_impl::pointer_t cache(t.f_cache.lock());
+    if(cache == nullptr)
+    {
+        return true;
+    }
+
+    return cache->evict_weights();
 }
 
 

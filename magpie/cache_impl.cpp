@@ -82,6 +82,15 @@ cleanup_runner::pointer_t       g_cleanup_runner = cleanup_runner::pointer_t();
 cppthread::thread::pointer_t    g_cleanup_thread = cppthread::thread::pointer_t();
 
 
+enum class cleanup_worker_action_t
+{
+    CLEANUP_WORKER_ACTION_START,
+    CLEANUP_WORKER_ACTION_STOP,
+    CLEANUP_WORKER_ACTION_WAKEUP,
+};
+
+
+
 /** \brief Start or join the cleanup worker thread.
  *
  * When a cache_impl pointer is specified in \p impl, then this
@@ -99,7 +108,7 @@ cppthread::thread::pointer_t    g_cleanup_thread = cppthread::thread::pointer_t(
  * to join the thread.
  * \param[in] done  Whether the cache_impl is done or not.
  */
-void start_stop_cleanup_worker(cache_impl::pointer_t impl, bool done)
+void start_stop_cleanup_worker(cache_impl::pointer_t impl, cleanup_worker_action_t action)
 {
     static cppthread::mutex local_lock = cppthread::mutex();
     cppthread::guard lock(local_lock);
@@ -107,34 +116,9 @@ std::cerr << gettid() << ": --- start_stop_cleanup_worker() get cleanup thread r
 
     // done with the thread?
     //
-    if(done)
+    switch(action)
     {
-        if(g_cleanup_thread == nullptr)
-        {
-            // thread was never allocated, nothing to do here
-            //
-std::cerr << gettid() << ": --- start_stop_cleanup_worker() no cleanup thread? ---" << std::endl;
-            return;
-        }
-std::cerr << gettid() << ": --- start_stop_cleanup_worker() ready to release cache ---" << std::endl;
-        g_cleanup_runner->release_cache(impl);
-
-        if(!g_cleanup_runner->all_caches_removed())
-        {
-            // the runner still has some cache_impl to manage
-            //
-std::cerr << gettid() << ": --- start_stop_cleanup_worker() still has caches to manage ---" << std::endl;
-            return;
-        }
-std::cerr << gettid() << ": --- start_stop_cleanup_worker() done managing threads ---" << std::endl;
-        //g_cleanup_thread->stop([](cppthread::thread * t){
-        //        static_cast<cleanup_runner *>(t->get_runner())->wakeup();
-        //    });
-        g_cleanup_thread.reset();
-        g_cleanup_runner.reset();
-    }
-    else
-    {
+    case cleanup_worker_action_t::CLEANUP_WORKER_ACTION_START:
         if(g_cleanup_thread == nullptr)
         {
             g_cleanup_runner = std::make_shared<cleanup_runner>();
@@ -151,6 +135,41 @@ std::cerr << gettid() << ": --- start_stop_cleanup_worker() done managing thread
         }
 
         g_cleanup_runner->manage_cache(impl);
+        break;
+
+    case cleanup_worker_action_t::CLEANUP_WORKER_ACTION_STOP:
+        if(g_cleanup_thread == nullptr)
+        {
+            // thread was never allocated, nothing to do here
+            //
+std::cerr << gettid() << ": --- start_stop_cleanup_worker() no cleanup thread? ---" << std::endl;
+            break;
+        }
+std::cerr << gettid() << ": --- start_stop_cleanup_worker() ready to release cache ---" << std::endl;
+        g_cleanup_runner->release_cache(impl);
+
+        if(!g_cleanup_runner->all_caches_removed())
+        {
+            // the runner still has some cache_impl to manage
+            //
+std::cerr << gettid() << ": --- start_stop_cleanup_worker() still has caches to manage ---" << std::endl;
+            break;
+        }
+std::cerr << gettid() << ": --- start_stop_cleanup_worker() done managing threads ---" << std::endl;
+        g_cleanup_thread.reset();
+        g_cleanup_runner.reset();
+        break;
+
+    case cleanup_worker_action_t::CLEANUP_WORKER_ACTION_WAKEUP:
+        if(g_cleanup_thread == nullptr)
+        {
+            // nothing to wake up
+            //
+            break;
+        }
+        static_cast<cleanup_runner *>(g_cleanup_runner.get())->wakeup();
+        break;
+
     }
 }
 
@@ -195,56 +214,35 @@ cache_impl::item_t::item_t(cache_interface * parent)
 cache_impl::item_t::item_t(item_t const & rhs)
     : f_parent(rhs.f_parent)
     , f_size(rhs.f_size)
-    , f_allocated(rhs.f_allocated)
     , f_created_on(rhs.f_created_on)
+    , f_value(nullptr)
+    , f_allocated(rhs.f_allocated)
     , f_ttl(rhs.f_ttl)
+    , f_last_updated_on(rhs.f_last_updated_on)
+    , f_access_count(rhs.f_access_count)
+    , f_last_touched_on(rhs.f_last_touched_on)
+    , f_timeout(rhs.f_timeout)
+    , f_turn(rhs.f_turn)
 {
-    if(this != &rhs)
+    if(rhs.f_size != 0
+    && rhs.f_value != nullptr)
     {
-        f_accesses.store(rhs.f_accesses.load(std::memory_order_relaxed), std::memory_order_relaxed);
-        f_last_access.store(rhs.f_last_access.load(std::memory_order_relaxed), std::memory_order_relaxed);
-        f_timeout.store(rhs.f_timeout.load(std::memory_order_relaxed), std::memory_order_relaxed);
-
-        if(rhs.f_size != 0
-        && rhs.f_value != nullptr)
+        f_value = malloc(rhs.f_size);
+        if(f_value == nullptr)
         {
-            if(f_size != 0
-            && f_size != rhs.f_size)
-            {
-                throw logic_error("item_t copying detected varying sizes between source and destination."); // LCOV_EXCL_LINE
-            }
-
-            if(f_value == nullptr)
-            {
-                f_value = malloc(rhs.f_size);
-                if(f_value == nullptr)
-                {
-                    throw std::bad_alloc(); // LCOV_EXCL_LINE
-                }
-                f_size = rhs.f_size;
-            }
-            else
-            {
-                f_parent->destroy(f_value, f_size);
-            }
-
-            try
-            {
-                f_parent->copy(rhs.f_value, f_value, f_size);
-            }
-            catch(...)
-            {
-                free(f_value);
-                f_value = nullptr;
-                f_size = 0;
-                throw;
-            }
+            throw std::bad_alloc(); // LCOV_EXCL_LINE
         }
-        else if(f_value != nullptr)
+
+        try
+        {
+            f_parent->copy(rhs.f_value, f_value, f_size);
+        }
+        catch(...)
         {
             free(f_value);
             f_value = nullptr;
             f_size = 0;
+            throw;
         }
     }
 }
@@ -271,7 +269,8 @@ cache_impl::item_t const & cache_impl::item_t::operator = (item_t const & rhs)
             {
                 throw logic_error("all the items in the cache must have the exact same parent."); // LCOV_EXCL_LINE
             }
-            if(f_size != rhs.f_size)
+            if(f_size != 0
+            && f_size != rhs.f_size)
             {
                 throw logic_error("all the items in the cache must have the exact same size."); // LCOV_EXCL_LINE
             }
@@ -299,14 +298,6 @@ cache_impl::item_t const & cache_impl::item_t::operator = (item_t const & rhs)
                 f_value = nullptr;
                 f_size = 0;
             }
-
-            f_allocated = rhs.f_allocated;
-            f_created_on = rhs.f_created_on;
-            f_ttl = rhs.f_ttl;
-
-            f_accesses.store(rhs.f_accesses.load(std::memory_order_relaxed), std::memory_order_relaxed);
-            f_last_access.store(rhs.f_last_access.load(std::memory_order_relaxed), std::memory_order_relaxed);
-            f_timeout.store(rhs.f_timeout.load(std::memory_order_relaxed), std::memory_order_relaxed);
         }
         else if(f_value != nullptr)
         {
@@ -314,6 +305,17 @@ cache_impl::item_t const & cache_impl::item_t::operator = (item_t const & rhs)
             f_value = nullptr;
             f_size = 0;
         }
+
+        f_created_on = rhs.f_created_on;
+
+        f_allocated = rhs.f_allocated;
+        f_ttl = rhs.f_ttl;
+        f_last_updated_on = rhs.f_last_updated_on;
+
+        f_access_count = rhs.f_access_count;
+        f_last_touched_on = rhs.f_last_touched_on;
+        f_timeout = rhs.f_timeout;
+        f_turn = rhs.f_turn;
     }
 
     return *this;
@@ -322,6 +324,18 @@ cache_impl::item_t const & cache_impl::item_t::operator = (item_t const & rhs)
 
 void cache_impl::item_t::set_value(void const * value, std::size_t size)
 {
+    // the size is not expected to change, if 0 the user is using
+    // the cache as a set (Set Cache, Presence Cache, Filter Cache)
+    //
+    if(size == 0)
+    {
+        if(f_size != 0)
+        {
+            throw logic_error("a value exists in item_t, but it has a different size (1)."); // LCOV_EXCL_LINE
+        }
+        return;
+    }
+
     if(f_value == nullptr)
     {
         f_value = malloc(size);
@@ -335,12 +349,20 @@ void cache_impl::item_t::set_value(void const * value, std::size_t size)
     {
         if(f_size != size)
         {
-            throw logic_error("a value exists in item_t, but it has a different size."); // LCOV_EXCL_LINE
+            throw logic_error("a value exists in item_t, but it has a different size (2)."); // LCOV_EXCL_LINE
         }
         f_parent->destroy(f_value, f_size);
     }
     f_parent->copy(value, f_value, f_size);
 }
+
+
+snapdev::timespec_ex cache_impl::item_t::last_accessed_on() const
+{
+    return std::max(f_last_updated_on, f_last_touched_on);
+}
+
+
 
 
 
@@ -416,17 +438,24 @@ void cache_impl::start_cleanup_worker()
 {
 std::cerr << gettid() << ": --- start cleanup worker now... ---" << std::endl;
     std::call_once(
-          f_thread_started
+          f_cleanup_thread_started
         , &start_stop_cleanup_worker
         , shared_from_this()
-        , false);
+        , cleanup_worker_action_t::CLEANUP_WORKER_ACTION_START);
 }
 
 
 void cache_impl::cache_done()
 {
 std::cerr << gettid() << ": --- cache_done() called... calling stop ---" << std::endl;
-    start_stop_cleanup_worker(shared_from_this(), true);
+    start_stop_cleanup_worker(shared_from_this(), cleanup_worker_action_t::CLEANUP_WORKER_ACTION_STOP);
+}
+
+
+void cache_impl::activate_eviction()
+{
+std::cerr << gettid() << ": --- cache_done() called... calling stop ---" << std::endl;
+    start_stop_cleanup_worker(shared_from_this(), cleanup_worker_action_t::CLEANUP_WORKER_ACTION_WAKEUP);
 }
 
 
@@ -485,10 +514,33 @@ std::size_t cache_impl::size() const
 }
 
 
-bool cache_impl::is_limit_count_reached() const
+bool cache_impl::is_limit_count_reached(bool exact) const
 {
-    return f_opts.get_count_limit() != 0
-        && size() >= f_opts.get_count_limit();
+    // limit defined?
+    //
+    std::size_t eviction_trigger(f_opts.get_count_limit());
+    if(eviction_trigger == 0)
+    {
+        return false;
+    }
+
+    // if we have a policy, check it to know when we reached the
+    // limit (the trigger percentage)
+    //
+    if(!exact)
+    {
+        eviction_policy::pointer_t ep(f_opts.get_eviction_policy());
+        if(ep != nullptr)
+        {
+            eviction_trigger = ep->get_size_eviction_trigger_limit(eviction_trigger);
+        }
+        else
+        {
+            eviction_trigger = static_cast<std::size_t>(floor(eviction_trigger * EVICTION_TRIGGER_DEFAULT));
+        }
+    }
+
+    return size() >= eviction_trigger;
 }
 
 
@@ -510,17 +562,40 @@ std::size_t cache_impl::allocated() const
 }
 
 
-bool cache_impl::is_capacity_reached() const
+bool cache_impl::is_capacity_reached(bool exact) const
 {
-    return f_opts.get_capacity_limit() != 0
-        && allocated() >= f_opts.get_capacity_limit();
+    // limit defined?
+    //
+    std::size_t eviction_trigger(f_opts.get_capacity_limit());
+    if(eviction_trigger == 0)
+    {
+        return false;
+    }
+
+    // if we have a policy, check it to know when we reached the
+    // limit (the trigger percentage)
+    //
+    if(!exact)
+    {
+        eviction_policy::pointer_t ep(f_opts.get_eviction_policy());
+        if(ep != nullptr)
+        {
+            eviction_trigger = ep->get_size_eviction_trigger_limit(eviction_trigger);
+        }
+        else
+        {
+            eviction_trigger = static_cast<std::size_t>(floor(eviction_trigger * EVICTION_TRIGGER_DEFAULT));
+        }
+    }
+
+    return allocated() >= eviction_trigger;
 }
 
 
 bool cache_impl::item_timed_out(item_t const & item) const
 {
-    time_t const now(time(nullptr));
-    return (item.f_timeout != time_t() && now >= item.f_timeout)
+    snapdev::timespec_ex const now(time(nullptr));
+    return (item.f_timeout != snapdev::timespec_ex() && now >= item.f_timeout)
         || (f_opts.get_maximum_lifetime() != NO_MAXIMUM_LIFETIME && now >= item.f_created_on + f_opts.get_maximum_lifetime());
 }
 
@@ -537,7 +612,7 @@ set_result_t cache_impl::set(
     , std::size_t value_size
     , duration_t ttl)
 {
-    time_t const now(time(nullptr));
+    snapdev::timespec_ex const now(snapdev::now());
 
     if(ttl == DEFAULT_TTL)
     {
@@ -578,7 +653,7 @@ set_result_t cache_impl::set(
     item_t item(f_parent);
     item.f_allocated = allocated_bytes;
     item.f_created_on = now;
-    item.f_last_access = now;
+    item.f_last_updated_on = now;
     item.f_ttl = ttl;
     if(ttl > 0)
     {
@@ -603,13 +678,15 @@ set_result_t cache_impl::set(
         //
         if(f_opts.get_refuse_data_once_full())
         {
-            if(is_limit_count_reached())
+            if(is_limit_count_reached(true))
             {
+                activate_eviction();
                 return set_result_t::SET_RESULT_REJECTED_COUNT;
             }
 
-            if(is_capacity_reached())
+            if(is_capacity_reached(true))
             {
+                activate_eviction();
                 return set_result_t::SET_RESULT_REJECTED_CAPACITY;
             }
         }
@@ -623,6 +700,11 @@ set_result_t cache_impl::set(
 #endif
         inserted.first->second.set_value(value, value_size);
 
+        if(f_first_item_created_on == snapdev::timespec_ex())
+        {
+            f_first_item_created_on = now;
+        }
+        f_last_item_updated_on = now;
         ++f_current_count_usage;
         f_current_capacity_usage += item.f_allocated;
 
@@ -650,28 +732,30 @@ set_result_t cache_impl::set(
             if(f_current_capacity_usage + additional >= f_opts.get_capacity_limit())
             {
                 bucket.f_entries.erase(it);
+                activate_eviction();
                 return set_result_t::SET_RESULT_REJECTED_CAPACITY;
             }
         }
 
         f_current_capacity_usage -= it->second.f_allocated;
         f_current_capacity_usage += item.f_allocated;
+        f_last_item_updated_on = now;
 
         it->second.set_value(value, value_size);
         it->second.f_allocated = item.f_allocated;
         it->second.f_ttl = item.f_ttl;
 
-        ++it->second.f_accesses;
-        if(it->second.f_accesses.load(std::memory_order_relaxed) > f_maximum_accesses)
+        ++it->second.f_access_count;
+        if(it->second.f_access_count > f_maximum_access_count)
         {
-            f_maximum_accesses = it->second.f_accesses.load(std::memory_order_relaxed);
+            f_maximum_access_count = it->second.f_access_count;
         }
         if(it->second.f_allocated > f_maximum_allocated)
         {
             f_maximum_allocated = it->second.f_allocated;
         }
-        it->second.f_last_access.store(item.f_last_access.load(std::memory_order_relaxed), std::memory_order_relaxed);
-        it->second.f_timeout.store(item.f_timeout.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        it->second.f_last_updated_on = now;
+        it->second.f_timeout = item.f_timeout;
 
         return set_result_t::SET_RESULT_UPDATED;
     }
@@ -686,7 +770,7 @@ bool cache_impl::get(
     , std::size_t value_size
     , bool update_ttl)
 {
-    time_t const now(time(nullptr));
+    snapdev::timespec_ex const now(snapdev::now());
 
     std::size_t const index(get_bucket_index(h));
     bucket_t & bucket{ f_buckets[index] };
@@ -752,11 +836,18 @@ std::cerr << "--- auto-purge in get()?!" << std::endl;
         it->second.f_timeout = now + it->second.f_ttl;
     }
 
-    it->second.f_last_access = now;
-    ++it->second.f_accesses;
-    if(it->second.f_accesses > f_maximum_accesses)
+    it->second.f_last_touched_on = now;
+    f_last_item_touched_on = now;
+
+    std::size_t const max_access_count(f_opts.get_maximum_access_count());
+    if(max_access_count == NO_LIMIT
+    || it->second.f_access_count < max_access_count)
     {
-        f_maximum_accesses = it->second.f_accesses.load(std::memory_order_relaxed);
+        ++it->second.f_access_count;
+        if(it->second.f_access_count > f_maximum_access_count)
+        {
+            f_maximum_access_count = it->second.f_access_count;
+        }
     }
 
     f_parent->copy(it->second.f_value, value, value_size);
@@ -782,9 +873,10 @@ metadata_t cache_impl::get_metadata(hash_t h)
 
     result.f_size = it->second.f_size;
     result.f_allocated = it->second.f_allocated;
-    result.f_accesses = it->second.f_accesses;
+    result.f_access_count = it->second.f_access_count;
     result.f_created_on = it->second.f_created_on;
-    result.f_last_access = it->second.f_last_access;
+    result.f_last_updated_on = it->second.f_last_updated_on;
+    result.f_last_touched_on = it->second.f_last_touched_on;
     result.f_ttl = it->second.f_ttl;
     result.f_timeout = it->second.f_timeout;
 
@@ -793,7 +885,7 @@ metadata_t cache_impl::get_metadata(hash_t h)
     result.f_stale_at = it->second.f_timeout;
     if(f_opts.get_maximum_lifetime() != NO_MAXIMUM_LIFETIME)
     {
-        time_t const maximum_stale_at(it->second.f_created_on + f_opts.get_maximum_lifetime());
+        snapdev::timespec_ex const maximum_stale_at(it->second.f_created_on + f_opts.get_maximum_lifetime());
         result.f_stale_at = std::min(result.f_stale_at, maximum_stale_at);
     }
 
@@ -891,25 +983,47 @@ std::cerr << "--- purge_expired() done looping... " << f_current_count_usage << 
  *
  * The function goes through the cache and assigns weights to each item.
  * This is done "in realtime" while the cache is live so the weights
- * computed first will be wrong by the time we finish up computing all
- * the weights... but we still use what we've got.
+ * computed first are like to be wrong by the time we finish up
+ * computing all the weights. To reduce the issue within the whole
+ * cache, the order in which we check each bucket changes on each
+ * cycle.
  *
- * The idea is fairly simple. If some items need to be erased, then we
- * do need to go through the entire cache, which can be huge, and compute
- * that weight the best we can.
+ * The idea is simple. When items need to be evicted, this function
+ * gets called and it starts computing weights for items within one
+ * bucket. The items with the lowest weight are the one that get
+ * evicted.
  *
- * There are several parameters that are used to compute the weight:
+ * The function handles many parameters through the eviction_policy
+ * defined when creating the cache. If no eviction policy was defined,
+ * then this way of evicting items is not used.
  *
- * * number of accesses / max. number of accesses
- * * item time of last access / time of last access through the entire cache
+ * All the possible parameters are defined in the eviction policy.
+ * There are three categories:
  *
- * There should be more available such as the cost of transferring data
- * over a network divided by the size of the object. i.e. is it best to
- * keep that item in memory compared to re-downloading it from the source.
+ * \li Parameters you defined when you initialize the policy
+ *     (i.e. at what percentage do we start * eviction).
+ * \li Parameters defined on each cycle; one cycle is the work
+ *     of computing weights of all the buckets and performing
+ *     the eviction (i.e. the timestamp when the oldest item
+ *     was created).
+ * \li Parameters defined for each item (i.e. the item access
+ *     count).
+ *
+ * The weight computation is done by the eviction_policy::compute_weight()
+ * function. You can actually control that computation 100% since
+ * you are given the ability to create your own policy and pass it
+ * to the options objects used to create the cache.
+ *
+ * The cycle mentioned above includes one call to this function per
+ * non-empty bucket. If all buckets are currently empty, then the
+ * function returns true immediately (although it should not get
+ * called since we would not have reached the limits if empty).
+ *
+ * \return true if the eviction statistic computations are complete.
  */
 bool cache_impl::evict_stats()
 {
-    // if no LRU/LFU evictions are possible, then return "done" immediately
+    // if no evictions policy defined, then return "done" immediately
     //
     eviction_policy::pointer_t ep(f_opts.get_eviction_policy());
     if(ep == nullptr)
@@ -919,46 +1033,138 @@ bool cache_impl::evict_stats()
 
     if(f_evict_stats_index == 0)
     {
+        f_evict_stat_started_on = time(nullptr);
+        ep->set_cycle_started_on(f_evict_stat_started_on);
+
+        // reset the variables before gathering their value from the
+        // cached items
+        //
+        f_evict_stat_max_access_count = 1;
+        f_evict_stat_max_allocated = 1;
+        f_evict_stat_oldest_item = snapdev::timespec_ex::max();
+        f_evict_stat_most_recent_item_update = f_first_item_created_on;
+        f_evict_stat_most_recent_item_touch = f_last_item_touched_on;
+        f_evict_stat_oldest_item_update = snapdev::timespec_ex::max();
+        f_evict_stat_oldest_item_touch = snapdev::timespec_ex::max();
+        f_evict_stat_highest_item_turn = 0;
+
+        f_evict_stats_offset = snapdev::random(0UL, f_buckets.size() - 1UL);
+    }
+
+    // the EVICT_SWEEP_STRIDE and f_evict_stats_offset gives us a seemingly
+    // random manner to go through the bucket without having to shuffle a
+    // large number of indexes
+    // 
+    // as a result, this means we do not give one bucket a higher priority
+    // over a long period of time
+    //
+    bool skip_empty(false);
+    do
+    {
+        std::size_t const index((f_evict_stats_index * EVICT_SWEEP_STRIDE + f_evict_stats_offset) % f_buckets.size());
+        bucket_t & bucket{ f_buckets[index] };
+
+        {
+            lock_guard lock(bucket.f_lock, false);
+
+            skip_empty = bucket.f_entries.empty();
+            for(auto & e : bucket.f_entries)
+            {
+                if(e.second.f_access_count > f_evict_stat_max_access_count)
+                {
+                    f_evict_stat_max_access_count = e.second.f_access_count;
+                }
+                if(e.second.f_allocated > f_evict_stat_max_allocated)
+                {
+                    f_evict_stat_max_allocated = e.second.f_allocated;
+                }
+                if(e.second.f_created_on < f_evict_stat_oldest_item)
+                {
+                    f_evict_stat_oldest_item = e.second.f_created_on;
+                }
+                if(e.second.f_last_updated_on > f_evict_stat_most_recent_item_update)
+                {
+                    f_evict_stat_most_recent_item_update = e.second.f_last_updated_on;
+                }
+                if(e.second.f_last_touched_on > f_evict_stat_most_recent_item_touch)
+                {
+                    f_evict_stat_most_recent_item_touch = e.second.f_last_touched_on;
+                }
+                if(e.second.f_last_updated_on < f_evict_stat_oldest_item_update)
+                {
+                    f_evict_stat_oldest_item_update = e.second.f_last_updated_on;
+                }
+                if(e.second.f_last_touched_on < f_evict_stat_oldest_item_touch)
+                {
+                    f_evict_stat_oldest_item_touch = e.second.f_last_touched_on;
+                }
+                if(e.second.f_turn < f_evict_stat_highest_item_turn)
+                {
+                    f_evict_stat_highest_item_turn = e.second.f_turn;
+                }
+
+                // this needs a better timer because when full, the cache
+                // triggers an eviction which means this could happen very
+                // often, more often than expected making the account count
+                // reach zero quickly
+                //
+                std::uint64_t const decay(f_opts.get_access_count_decay());
+                if(decay != NO_DECAY)
+                {
+                    if(e.second.f_access_count > decay)
+                    {
+                        e.second.f_access_count -= decay;
+                    }
+                    else
+                    {
+                        e.second.f_access_count = 0;
+                    }
+                }
+
+                ++e.second.f_turn;
+            }
+        }
+
+        ++f_evict_stats_index;
+        if(f_evict_stats_index >= f_buckets.size())
+        {
+            f_evict_stats_index = 0;
+
+            ep->set_maximum_access_count(f_evict_stat_max_access_count);
+            ep->set_maximum_allocated(f_evict_stat_max_allocated);
+            ep->set_oldest_item_created_on(f_evict_stat_oldest_item.to_sec());
+            ep->set_most_recent_item_update(f_evict_stat_most_recent_item_update.to_sec());
+            ep->set_most_recent_item_touch(f_evict_stat_most_recent_item_touch.to_sec());
+            ep->set_oldest_item_update(f_evict_stat_oldest_item_update.to_sec());
+            ep->set_oldest_item_touch(f_evict_stat_oldest_item_touch.to_sec());
+            ep->set_highest_item_turn(f_evict_stat_highest_item_turn);
+
+            return true;
+        }
+    }
+    while(skip_empty);
+
+    return false;
+}
+
+
+bool cache_impl::evict_weights()
+{
+    // if no evictions policy defined, then return "done" immediately
+    //
+    eviction_policy::pointer_t ep(f_opts.get_eviction_policy());
+    if(ep == nullptr)
+    {
+        return true;
+    }
+
+    if(f_evict_weight_index == 0)
+    {
         // reset the statistic variables
         //
         f_evict_smallest_weights.clear();
 
-        if(f_evict_stat_max_accesses == 0)
-        {
-            // the first time, make use of the f_max_accesses
-            // since f_evict_stat_max_accesses is not set yet
-            //
-            //f_evict_stat_max_accesses_for_weight = f_maximum_accesses;
-            ep->set_maximum_access_count(f_maximum_accesses);
-        }
-        else
-        {
-            // TODO: this is not actually that great because the
-            //       cleanup thread may sleep hours between evictions
-            //       so the max. computed last time could be really old
-            //
-            //f_evict_stat_max_accesses_for_weight = f_evict_stat_max_accesses;
-            ep->set_maximum_access_count(f_evict_stat_max_accesses);
-        }
-
-        if(f_evict_stat_max_allocated == 0)
-        {
-            ep->set_maximum_byte_size(f_maximum_allocated);
-        }
-        else
-        {
-            ep->set_maximum_byte_size(f_evict_stat_max_allocated);
-        }
-
-        f_evict_stat_started_on = time(nullptr);
-
-        //f_evict_stat_latest_access_age_for_weight = ...
-        ep->set_access_age(f_evict_stat_started_on - magpie_start_time());
-
-        f_evict_stat_max_accesses = 1;
-        f_evict_stat_max_allocated = 1; // assume cached objects are rarely all empty
-
-        f_evict_stats_offset = snapdev::random(0UL, f_buckets.size() - 1UL);
+        f_evict_weight_offset = snapdev::random(0UL, f_buckets.size() - 1UL);
 
         // setup a default weight count
         //
@@ -968,14 +1174,14 @@ bool cache_impl::evict_stats()
         // from the current size to the reduction percent if the count trigger
         // is reached
         //
-        double const current_size(size());
-        double const eviction_trigger(f_opts.get_count_limit() * f_size_eviction_trigger_percent);
-        if(current_size >= eviction_trigger)
+        std::size_t const current_size(size());
+        std::size_t const eviction_trigger(ep->get_size_eviction_trigger_limit(f_opts.get_count_limit()));
+        if(current_size >= floor(eviction_trigger))
         {
             // add a little bit so by the time we start evicting we
             // get at least enough entries
             //
-            double const eviction_count(f_opts.get_count_limit() * (1.0 - f_size_eviction_reduction_percent) + 10.0);
+            double const eviction_count(f_opts.get_count_limit() * (1.0 - ep->get_size_eviction_reduction_percent()) + 10.0);
             if(eviction_count > f_evict_smallest_weights_count)
             {
                 f_evict_smallest_weights_count = eviction_count;
@@ -983,70 +1189,71 @@ bool cache_impl::evict_stats()
         }
 std::cerr << "--- evict_stats() count set to = "
 << f_evict_smallest_weights_count
-<< " -- max access: " << f_evict_stat_max_accesses_for_weight
+//<< " -- max access: " << f_evict_stat_max_accesses_for_weight
 //<< " -- latest access: " << f_evict_stat_latest_access_age_for_weight
 << std::endl;
     }
 
-    // the following allows us to walk all the buckets in a seemingly
-    // random manner without having to shuffle a large number of indexes
+    // the EVICT_SWEEP_STRIDE and f_evict_weight_offset gives us a seemingly
+    // random manner to go through the bucket without having to shuffle a
+    // large number of indexes
     // 
     // as a result, this means we do not give one bucket a higher priority
-    // over long period of time
+    // over a long period of time
     //
-    std::size_t const index((f_evict_stats_index * EVICT_SWEEP_STRIDE + f_evict_stats_offset) % f_buckets.size());
-    bucket_t & bucket{ f_buckets[index] };
-
+    bool skip_empty(false);
+    do
     {
-        lock_guard lock(bucket.f_lock, false);
+        std::size_t const index((f_evict_weight_index * EVICT_SWEEP_STRIDE + f_evict_weight_offset) % f_buckets.size());
+        bucket_t & bucket{ f_buckets[index] };
 
-        for(auto & e : bucket.f_entries)
         {
-            if(e.second.f_accesses > f_evict_stat_max_accesses)
-            {
-                f_evict_stat_max_accesses = e.second.f_accesses;
-            }
+            lock_guard lock(bucket.f_lock, false);
 
-            // compute this item weight
-            //
-            //double weight(1.0);
-            //if(snapdev::quiet_floating_point_equal(f_opts.get_least_frequently_weight(),   0.0))
-            //{
-            //    weight *= e.second.f_accesses / f_evict_stat_max_accesses_for_weight;
-            //}
-            //if(snapdev::quiet_floating_point_equal(f_opts.get_least_recently_weight(), 0.0))
-            //{
-            //    weight *= (e.second.f_last_access - magpie_start_time()) / f_evict_stat_latest_access_age_for_weight;
-            //}
-            ep->set_access_count(e.second.f_accesses);
-            ep->set_last_access(e.second.f_last_access);
-            ep->set_byte_size(e.second.f_allocated);
-            ep->set_item_age(f_evict_stat_started_on - e.second.f_created_on);
-            double const weight(ep->compute_weight());
+            skip_empty = bucket.f_entries.empty();
+            for(auto & e : bucket.f_entries)
+            {
+                // setup this item data in the eviction policy object
+                //
+                ep->set_access_count(e.second.f_access_count);
+                ep->set_last_updated_on(e.second.f_last_updated_on.to_sec());
+                ep->set_last_touched_on(e.second.f_last_touched_on.to_sec());
+                ep->set_allocated(e.second.f_allocated);
+                ep->set_item_created_on(e.second.f_created_on.to_sec());
+                ep->set_item_timeout(e.second.f_timeout.to_sec());
+                ep->set_item_turn(e.second.f_turn);
 
-            if(f_evict_smallest_weights.size() < f_evict_smallest_weights_count)
-            {
-                f_evict_smallest_weights.emplace(e.first, weight, e.second.f_allocated);
-            }
-            else if(weight < f_evict_smallest_weights.rbegin()->f_weight)
-            {
-                f_evict_smallest_weights.erase(std::prev(f_evict_smallest_weights.end()));
-                f_evict_smallest_weights.emplace(e.first, weight, e.second.f_allocated);
+                // now compute this item weight
+                //
+                double const weight(ep->compute_weight());
+
+                // register the weight if possible
+                //
+                if(f_evict_smallest_weights.size() < f_evict_smallest_weights_count)
+                {
+                    f_evict_smallest_weights.emplace(e.first, weight, e.second.f_allocated);
+                }
+                else if(weight < f_evict_smallest_weights.rbegin()->f_weight)
+                {
+                    f_evict_smallest_weights.erase(std::prev(f_evict_smallest_weights.end()));
+                    f_evict_smallest_weights.emplace(e.first, weight, e.second.f_allocated);
+                }
             }
         }
-    }
 std::cerr << "--- evict_stats() smallest weight: " << f_evict_smallest_weights.size() << std::endl;
 //for(auto const & e : f_evict_smallest_weights)
 //{
 //    std::cerr << "  " << e.f_weight
 //}
 
-    ++f_evict_stats_index;
-    if(f_evict_stats_index >= f_buckets.size())
-    {
-        f_evict_stats_index = 0;
-        return true;
+        ++f_evict_weight_index;
+        if(f_evict_weight_index >= f_buckets.size())
+        {
+            f_evict_weight_index = 0;
+            return true;
+        }
     }
+    while(skip_empty);
 
     return false;
 }
@@ -1054,11 +1261,17 @@ std::cerr << "--- evict_stats() smallest weight: " << f_evict_smallest_weights.s
 
 bool cache_impl::evict_organize_by_bucket()
 {
+    eviction_policy::pointer_t ep(f_opts.get_eviction_policy());
+    if(ep == nullptr)
+    {
+        return true;
+    }
+
     std::size_t current_count(size());
     std::size_t current_allocated(allocated());
 
-    std::size_t count_limit(f_opts.get_count_limit() * f_size_eviction_reduction_percent);
-    std::size_t capacity_limit(f_opts.get_capacity_limit() * f_size_eviction_reduction_percent);
+    std::size_t const count_limit(ep->get_size_eviction_reduction_limit(f_opts.get_count_limit()));
+    std::size_t const capacity_limit(ep->get_size_eviction_reduction_limit(f_opts.get_capacity_limit()));
 
     auto need_more_evictions([count_limit, capacity_limit, &current_count, &current_allocated]()
         {
@@ -1079,7 +1292,7 @@ bool cache_impl::evict_organize_by_bucket()
         }
 
         std::size_t const bucket_idx(get_bucket_index(e.f_hash));
-        f_targets_by_bucket[bucket_idx].push_back(e.f_hash);
+        f_evict_targets_by_bucket[bucket_idx].push_back(e.f_hash);
 
         --current_count;
         current_allocated -= e.f_allocated;
@@ -1101,10 +1314,16 @@ bool cache_impl::evict_organize_by_bucket()
  */
 bool cache_impl::evict()
 {
-    if(!f_targets_by_bucket.empty())
+    eviction_policy::pointer_t ep(f_opts.get_eviction_policy());
+    if(ep == nullptr)
     {
-        std::size_t count_limit(f_opts.get_count_limit() * f_size_eviction_reduction_percent);
-        std::size_t capacity_limit(f_opts.get_capacity_limit() * f_size_eviction_reduction_percent);
+        return true;
+    }
+
+    if(!f_evict_targets_by_bucket.empty())
+    {
+        std::size_t const count_limit(ep->get_size_eviction_reduction_limit(f_opts.get_count_limit()));
+        std::size_t const capacity_limit(ep->get_size_eviction_reduction_limit(f_opts.get_capacity_limit()));
 
         auto need_more_evictions([this, count_limit, capacity_limit]()
             {
@@ -1112,11 +1331,11 @@ bool cache_impl::evict()
                     || (capacity_limit > 0 && this->f_current_capacity_usage > capacity_limit);
             });
 
-        auto bucket_it(f_targets_by_bucket.begin());
+        auto bucket_it(f_evict_targets_by_bucket.begin());
         std::size_t const bucket_idx(bucket_it->first);
         bucket_t & bucket{ f_buckets[bucket_idx] };
 
-std::cerr << "--- evict from bucket: " << bucket_idx << " (" << f_targets_by_bucket.size() << "/" << bucket_it->second.size() << "/" << f_current_count_usage << "/" << f_eviction_counter << ")\n";
+std::cerr << "--- evict from bucket: " << bucket_idx << " (" << f_evict_targets_by_bucket.size() << "/" << bucket_it->second.size() << "/" << f_current_count_usage << "/" << f_eviction_counter << ")\n";
 std::cerr << "--- evict need more eviction? "
     << f_current_count_usage << " > " << count_limit
     << " and "
@@ -1155,16 +1374,16 @@ std::cerr << "--- evict need more eviction? "
             // this happens if we had other evictions done by the
             // user or other processes (i.e. purge_expired())
             //
-            f_targets_by_bucket.clear();
+            f_evict_targets_by_bucket.clear();
         }
         else
         {
-            f_targets_by_bucket.erase(bucket_it);
+            f_evict_targets_by_bucket.erase(bucket_it);
         }
-std::cerr << "--- evicted from bucket: " << bucket_idx << " -- erased? (" << f_targets_by_bucket.size() << "/" << f_current_count_usage << "/" << f_eviction_counter << "/" << std::boolalpha << done << ")\n";
+std::cerr << "--- evicted from bucket: " << bucket_idx << " -- erased? (" << f_evict_targets_by_bucket.size() << "/" << f_current_count_usage << "/" << f_eviction_counter << "/" << std::boolalpha << done << ")\n";
     }
 
-    return f_targets_by_bucket.empty();
+    return f_evict_targets_by_bucket.empty();
 }
 
 

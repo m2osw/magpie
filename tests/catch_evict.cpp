@@ -103,7 +103,7 @@ CATCH_TEST_CASE("evict_least_recent", "[thread]")
             ep->set_size_eviction_reduction_percent(0.9);
             ep->set_access_count_weight(0.0);
             ep->set_recency_weight(1.0);
-            ep->set_byte_size_weight(0.0);
+            ep->set_allocated_weight(0.0);
             ep->set_age_weight(0.0);
             opts.set_eviction_policy(ep);
 
@@ -214,7 +214,7 @@ CATCH_TEST_CASE("evict_least_frequent", "[thread]")
             ep->set_size_eviction_reduction_percent(0.9);
             ep->set_access_count_weight(1.0);
             ep->set_recency_weight(0.0);
-            ep->set_byte_size_weight(0.0);
+            ep->set_allocated_weight(0.0);
             ep->set_age_weight(0.0);
             opts.set_eviction_policy(ep);
 

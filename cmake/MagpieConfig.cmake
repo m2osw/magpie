@@ -27,14 +27,14 @@
 
 find_path(
     MAGPIE_INCLUDE_DIR
-        magpie/magpie.h
+        magpie/version.h
 
     PATHS
         ENV MAGPIE_INCLUDE_DIR
 )
 find_library(
     MAGPIE_LIBRARY
-        addr
+        magpie
 
     PATHS
         ${MAGPIE_LIBRARY_DIR}

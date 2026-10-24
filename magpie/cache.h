@@ -58,6 +58,11 @@ namespace magpie
 
 
 
+struct empty_t
+{
+};
+
+
 template<typename K, typename T>
 requires std::copy_constructible<T>
       && (std::is_trivially_copyable_v<K>
@@ -90,6 +95,18 @@ public:
 
     }
 
+    constexpr std::size_t sizeof_T() const
+    {
+        if constexpr (std::is_same_v<T, empty_t>)
+        {
+            return std::size_t();
+        }
+        else
+        {
+            return sizeof(T);
+        }
+    }
+
     set_result_t set(K const & k, T const & t, duration_t ttl = DEFAULT_TTL)
     {
         if(!f_allow_empty_key
@@ -98,7 +115,7 @@ public:
             throw empty_key_not_accepted("this cache was setup to not accept the empty key.");
         }
 
-        return f_impl->set(hash_key(k), &t, sizeof(T), ttl);
+        return f_impl->set(hash_key(k), &t, sizeof_T(), ttl);
     }
 
     bool erase(K const & k)
@@ -171,24 +188,30 @@ public:
 
     virtual void copy(void const * in, void * out, std::size_t size) const override
     {
-        if(size != sizeof(T))
+        if(size != sizeof_T())
         {
             throw logic_error("size of T and size of object to be copied do not match."); // LCOV_EXCL_LINE
         }
 
 //std::cerr << gettid() << ": --- COPY AN OBJECT " << reinterpret_cast<void const *>(this) << " :: " << in << " -> " << out << " ---" << std::endl;
-        std::construct_at(reinterpret_cast<T *>(out), *reinterpret_cast<T const *>(in));
+        if(size > 0)
+        {
+            std::construct_at(reinterpret_cast<T *>(out), *reinterpret_cast<T const *>(in));
+        }
     }
 
     virtual void destroy(void * value, std::size_t size) const override
     {
-        if(size != sizeof(T))
+        if(size != sizeof_T())
         {
             throw logic_error("size of T and size of object to be destroyed do no match."); // LCOV_EXCL_LINE
         }
 //std::cerr << gettid() << ": --- DESTROY AN OBJECT " << reinterpret_cast<void const *>(this) << " :: " << value << " ---" << std::endl;
-        T * v(reinterpret_cast<T *>(value));
-        std::destroy_at(v);
+        if(size > 0)
+        {
+            T * v(reinterpret_cast<T *>(value));
+            std::destroy_at(v);
+        }
     }
 
     std::size_t size() const
@@ -215,7 +238,7 @@ public:
 
     virtual std::size_t allocated(void const * value, std::size_t size) const override
     {
-        if(size != sizeof(T))
+        if(size != sizeof_T())
         {
             throw logic_error("size of T and size of object in allocated() do no match."); // LCOV_EXCL_LINE
         }
@@ -254,7 +277,7 @@ private:
     std::optional<T> get_impl(detail::hash_t const h, bool update_ttl = true) const
     {
         T v;
-        if(f_impl->get(h, &v, sizeof(T), update_ttl))
+        if(f_impl->get(h, &v, sizeof_T(), update_ttl))
         {
             return std::optional<T>(std::move(v));
         }

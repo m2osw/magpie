@@ -375,6 +375,54 @@ CATCH_TEST_CASE("cache", "[cache]")
         }
     }
     CATCH_END_SECTION()
+
+    CATCH_START_SECTION("cache: object with no value")
+    {
+        magpie::options opts;
+        opts.set_count_limit(25);
+
+        magpie::empty_t const v;
+
+        magpie::cache<int, magpie::empty_t> cache(opts);
+
+        // create a few items
+        //
+        for(int k(1); k <= 10; ++k)
+        {
+            magpie::set_result_t status(cache.set(k, v));
+            CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_ADDED);
+            CATCH_REQUIRE(cache.get(k).has_value());
+            //CATCH_REQUIRE(cache.get(k).value() == v);
+            CATCH_REQUIRE(cache.size() == static_cast<std::size_t>(k));
+        }
+
+        // items not created do not exist
+        //
+        for(int k(101); k <= 110; ++k)
+        {
+            CATCH_REQUIRE_FALSE(cache.get(k).has_value());
+            CATCH_REQUIRE(cache.size() == 10UL);
+        }
+
+        // updating items
+        //
+        for(int k(1); k <= 10; ++k)
+        {
+            magpie::set_result_t status(cache.set(k, v));
+            CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_UPDATED);
+            CATCH_REQUIRE(cache.get(k).has_value());
+            //CATCH_REQUIRE(cache.get(k).value() == v);
+            CATCH_REQUIRE(cache.size() == 10UL);
+        }
+
+        // we can erase one of the items
+        {
+            cache.erase(3);
+            CATCH_REQUIRE(cache.size() == 9UL);
+            CATCH_REQUIRE_FALSE(cache.get(3).has_value());
+        }
+    }
+    CATCH_END_SECTION()
 }
 
 

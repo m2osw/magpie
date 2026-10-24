@@ -44,6 +44,7 @@
 // snapdev
 //
 #include    <snapdev/math.h>
+#include    <snapdev/timespec_ex.h>
 
 
 // C++
@@ -71,16 +72,22 @@ struct metadata_t
 
     operator bool () const
     {
-        return f_created_on != time_t();
+        return f_created_on != snapdev::timespec_ex();
+    }
+
+    snapdev::timespec_ex last_accessed_on() const
+    {
+        return std::max(f_last_updated_on, f_last_touched_on);
     }
 
     std::size_t             f_size = 0;
     std::size_t             f_allocated = 0;
-    std::uint64_t           f_accesses = 0;
-    time_t                  f_created_on = time_t();
-    time_t                  f_last_access = time_t();
-    time_t                  f_stale_at = time_t();
-    time_t                  f_timeout = time_t();
+    std::uint64_t           f_access_count = 0;
+    snapdev::timespec_ex    f_created_on = snapdev::timespec_ex();
+    snapdev::timespec_ex    f_last_updated_on = snapdev::timespec_ex();
+    snapdev::timespec_ex    f_last_touched_on = snapdev::timespec_ex();
+    snapdev::timespec_ex    f_stale_at = snapdev::timespec_ex();
+    snapdev::timespec_ex    f_timeout = snapdev::timespec_ex();
     duration_t              f_ttl = NO_TTL;
 };
 
@@ -126,17 +133,31 @@ private:
 
         item_t const &          operator = (item_t const & rhs);
 
-        cache_interface *       f_parent = nullptr;             // to call the copy operator
-        void *                  f_value = nullptr;              // a copy of the user's object
-        std::size_t             f_size = 0;                     // size of the object
-        std::size_t             f_allocated = 0;                // amount of memory used by this object
-        time_t                  f_created_on = time_t();        // the time when the object was created
-        duration_t              f_ttl = duration_t();           // ttl to update f_timeout when update_ttl is true
+        snapdev::timespec_ex    last_accessed_on() const;
+        void                    decay_access_count(std::uint64_t const dec);
 
-        std::atomic<std::uint64_t>
-                                f_accesses = 1;                 // number of time the item was accessed
-        std::atomic<time_t>     f_last_access = time_t();       // last time this very object was accessed (set or get)
-        std::atomic<time_t>     f_timeout = time_t();           // (f_created_on | f_last_access) + f_ttl -- when value becomes stale
+        // set once on creation -- first set()
+        //
+        cache_interface *       f_parent = nullptr;                         // to call the copy operator
+        std::size_t             f_size = 0;                                 // size of the object
+        snapdev::timespec_ex    f_created_on = snapdev::timespec_ex();      // the time when the object was created
+
+        // updated on a set()
+        //
+        void *                  f_value = nullptr;                          // a copy of the user's object
+        std::size_t             f_allocated = 0;                            // amount of memory used by this object
+        duration_t              f_ttl = duration_t();                       // ttl to update f_timeout when update_ttl is true
+        snapdev::timespec_ex    f_last_updated_on = snapdev::timespec_ex(); // last time this very object was updated (last set)
+
+        // updated on a set() and get()
+        //
+        std::uint64_t           f_access_count = 1;                         // number of time the item was accessed
+        snapdev::timespec_ex    f_last_touched_on = snapdev::timespec_ex(); // last time this very object was read (last get only)
+        snapdev::timespec_ex    f_timeout = snapdev::timespec_ex();         // (f_created_on | f_last_access) + f_ttl -- when value becomes stale
+
+        // updated by the eviction algorithm
+        //
+        std::uint64_t           f_turn = 0;                                 // number of time this object went through the eviction process
     };
 
 public:
@@ -156,9 +177,9 @@ public:
     duration_t              get_cleanup_interval() const;
     void                    cache_done();
     std::size_t             size() const;
-    bool                    is_limit_count_reached() const;
+    bool                    is_limit_count_reached(bool exact) const;
     std::size_t             allocated() const;
-    bool                    is_capacity_reached() const;
+    bool                    is_capacity_reached(bool exact) const;
     bool                    item_timed_out(item_t const & item) const;
     std::size_t             get_bucket_index(hash_t h) const;
 
@@ -182,6 +203,7 @@ public:
 
     bool                    purge_expired();
     bool                    evict_stats();
+    bool                    evict_weights();
     bool                    evict_organize_by_bucket();
     bool                    evict();
 
@@ -195,6 +217,7 @@ public:
 
     bool                    is_cleanup_worker_required() const;
     void                    start_cleanup_worker();
+    void                    activate_eviction();
 
 private:
     struct bucket_t
@@ -231,28 +254,32 @@ private:
     cache_interface *       f_parent = nullptr;
     options const           f_opts;
     bucket_t::vector_t      f_buckets = bucket_t::vector_t();
-    std::atomic<std::size_t>
-                            f_current_capacity_usage = 0;
-    std::atomic<std::size_t>
-                            f_current_count_usage = 0;
-    std::atomic<std::uint64_t>
-                            f_maximum_accesses = 1;
-    std::atomic<std::uint64_t>
-                            f_maximum_allocated = 1;
+    std::size_t             f_current_capacity_usage = 0;
+    std::size_t             f_current_count_usage = 0;
+    std::uint64_t           f_maximum_access_count = 1;
+    std::uint64_t           f_maximum_allocated = 1;
+    snapdev::timespec_ex    f_first_item_created_on = snapdev::timespec_ex();
+    snapdev::timespec_ex    f_last_item_updated_on = snapdev::timespec_ex();
+    snapdev::timespec_ex    f_last_item_touched_on = snapdev::timespec_ex();
+    snapdev::timespec_ex    f_most_recent_item_update = snapdev::timespec_ex();
     std::size_t             f_purge_index = 0;
     std::size_t             f_evict_stats_index = 0;
     std::size_t             f_evict_stats_offset = 0;
-    std::uint64_t           f_evict_stat_max_accesses = 0;
-    std::uint64_t           f_evict_stat_max_allocated = 0;
-    time_t                  f_evict_stat_started_on = 0;
-    double                  f_evict_stat_max_accesses_for_weight = 0.0;
-    double                  f_evict_stat_latest_access_age_for_weight = time(nullptr);
-    double                  f_size_eviction_trigger_percent = 0.95;
-    double                  f_size_eviction_reduction_percent = 0.9;
+    snapdev::timespec_ex    f_evict_stat_started_on = snapdev::timespec_ex();
+    std::uint64_t           f_evict_stat_max_access_count = 0;
+    std::size_t             f_evict_stat_max_allocated = 0;
+    snapdev::timespec_ex    f_evict_stat_oldest_item = snapdev::timespec_ex();   // smallest f_created_on
+    snapdev::timespec_ex    f_evict_stat_most_recent_item_update = snapdev::timespec_ex();
+    snapdev::timespec_ex    f_evict_stat_most_recent_item_touch = snapdev::timespec_ex();
+    snapdev::timespec_ex    f_evict_stat_oldest_item_update = snapdev::timespec_ex::max();
+    snapdev::timespec_ex    f_evict_stat_oldest_item_touch = snapdev::timespec_ex::max();
+    std::uint64_t           f_evict_stat_highest_item_turn = 0;
+    std::size_t             f_evict_weight_index = 0;
+    std::size_t             f_evict_weight_offset = 0;
     std::size_t             f_evict_smallest_weights_count = 0;
     smallest_evict_item_t   f_evict_smallest_weights = smallest_evict_item_t();
-    organized_evict_items_t f_targets_by_bucket = organized_evict_items_t();
-    std::once_flag          f_thread_started = std::once_flag();
+    organized_evict_items_t f_evict_targets_by_bucket = organized_evict_items_t();
+    std::once_flag          f_cleanup_thread_started = std::once_flag();
 
     // statistics
     //

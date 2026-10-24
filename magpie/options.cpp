@@ -86,27 +86,51 @@ std::size_t options::get_maximum_object_size() const
 }
 
 
-void options::set_capacity_limit(std::size_t maximum_byte_size)
+void options::set_capacity_limit(std::size_t maximum_allocated)
 {
-    f_maximum_byte_size = maximum_byte_size;
+    f_maximum_allocated = maximum_allocated;
 }
 
 
 std::size_t options::get_capacity_limit() const
 {
-    return f_maximum_byte_size;
+    return f_maximum_allocated;
 }
 
 
-void options::set_count_limit(std::size_t maximum_count)
+void options::set_maximum_access_count(std::size_t maximum_count)
 {
-    f_maximum_count = maximum_count;
+    f_maximum_access_count = maximum_count;
+}
+
+
+std::size_t options::get_maximum_access_count() const
+{
+    return f_maximum_access_count;
+}
+
+
+void options::set_access_count_decay(std::size_t decay)
+{
+    f_access_count_decay = decay;
+}
+
+
+std::size_t options::get_access_count_decay() const
+{
+    return f_access_count_decay;
+}
+
+
+void options::set_count_limit(std::size_t count_limit)
+{
+    f_count_limit = count_limit;
 }
 
 
 std::size_t options::get_count_limit() const
 {
-    return f_maximum_count;
+    return f_count_limit;
 }
 
 
