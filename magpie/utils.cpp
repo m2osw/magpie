@@ -50,16 +50,36 @@ namespace
 
 
 
-time_t const                    g_start_time = time(nullptr) - 1; // -1 to avoid dividing by zero
+time_t const                    g_start_time = time(nullptr);
 
 
 
 } // no name namespace
 
 
+
 time_t magpie_start_time()
 {
     return g_start_time;
+}
+
+
+/** \brief Transform 'now' in a 32 bit unsigned integer.
+ *
+ * This function returns 'now' in a 32 bit unsigned integer. It does
+ * that by subtracting g_start_time (see magpie_start_time() for details)
+ * from time(nullptr). As a result we end up with a time which is small
+ * enough to find in an unsigned integer of 32 bits and still last
+ * well over 100 years.
+ *
+ * \note
+ * A very early call means the function may return 0.
+ *
+ * \return The biased_time_t representing now() in seconds.
+ */
+biased_time_t biased_now()
+{
+    return static_cast<biased_time_t>(time(nullptr) - g_start_time);
 }
 
 

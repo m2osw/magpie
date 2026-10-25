@@ -27,9 +27,9 @@
 
 // self
 //
-//#include    <magpie/cache_impl.h>
-//
-//#include    <magpie/cache.h>
+#include    <magpie/exception.h>
+#include    <magpie/utils.h>
+
 //#include    <magpie/cleanup_runner.h>
 //#include    <magpie/lock_mutex.h>
 //#include    <magpie/lock_recursive_rwlock.h>
@@ -37,9 +37,9 @@
 
 
 
-// cppthread
+// snapdev
 //
-//#include    <cppthread/thread.h>
+//#include    <snapdev/timespec_ex.h>
 
 
 // murmur3
@@ -49,7 +49,7 @@
 
 // C++
 //
-#include    <cstdint>
+#include    <cmath>
 #include    <memory>
 
 
@@ -71,109 +71,152 @@ constexpr double const                  EVICTION_REDUCTION_DEFAULT = 0.9;
 
 
 
-class eviction_policy
+class eviction_profile
 {
 public:
-    typedef std::shared_ptr<eviction_policy>        pointer_t;
+    std::size_t get_size_eviction_trigger_limit(std::size_t count_limit) const
+    {
+        return static_cast<std::size_t>(std::floor(count_limit * f_size_eviction_trigger_percent));
+    }
 
-    virtual                 ~eviction_policy() = default;
+    std::size_t get_size_eviction_reduction_limit(std::size_t count_limit) const
+    {
+        return static_cast<std::size_t>(std::floor(count_limit * f_size_eviction_reduction_percent));
+    }
 
-    // per cache data
-    //
-    void                    set_size_eviction_trigger_percent(double percent);
-    double                  get_size_eviction_trigger_percent() const;
-    std::size_t             get_size_eviction_trigger_limit(std::size_t count_limit) const;
-    void                    set_size_eviction_reduction_percent(double percent);
-    double                  get_size_eviction_reduction_percent() const;
-    std::size_t             get_size_eviction_reduction_limit(std::size_t count_limit) const;
+    void set_size_eviction_trigger_percent(double percent)
+    {
+        f_size_eviction_trigger_percent = percent;
+    }
 
-    void                    set_access_count_weight(double weight);
-    double                  get_access_count_weight() const;
-    void                    set_recency_weight(double weight);
-    double                  get_recency_weight() const;
-    void                    set_recency_decay_half_time(double decay_half_time);
-    double                  get_recency_decay_half_time() const;
-    void                    set_allocated_weight(double weight);
-    double                  get_allocated_weight() const;
-    void                    set_age_weight(double weight);
-    double                  get_age_weight() const;
-    void                    set_age_decay_half_time(double decay_half_time);
-    double                  get_age_decay_half_time() const;
-    void                    set_random_weight(double weight);
-    double                  get_random_weight() const;
+    double get_size_eviction_trigger_percent() const
+    {
+        return f_size_eviction_trigger_percent;
+    }
 
-    void                    set_linear_normalization(linear_t linear_normalization);
-    linear_t                get_linear_normalization() const;
+    void set_size_eviction_reduction_percent(double percent)
+    {
+        f_size_eviction_reduction_percent = percent;
+    }
 
-    // per cycle data
-    //
-    void                    set_cycle_started_on(double cycle_started_on);
-    double                  get_cycle_started_on() const;
-    void                    set_maximum_access_count(double maximum_access_count);
-    double                  get_maximum_access_count() const;
-    void                    set_maximum_allocated(double maximum_allocated);
-    double                  get_maximum_allocated() const;
-    void                    set_oldest_item_created_on(double created_on);
-    double                  get_oldest_item_created_on() const;
-    void                    set_most_recent_item_update(double updated_on);
-    double                  get_most_recent_item_update() const;
-    void                    set_most_recent_item_touch(double touched_on);
-    double                  get_most_recent_item_touch() const;
-    void                    set_oldest_item_update(double oldest_update);
-    double                  get_oldest_item_update() const;
-    void                    set_oldest_item_touch(double oldest_update);
-    double                  get_oldest_item_touch() const;
-    void                    set_highest_item_turn(double turn);
-    double                  get_highest_item_turn() const;
+    double get_size_eviction_reduction_percent() const
+    {
+        return f_size_eviction_reduction_percent;
+    }
 
-    // per item data
-    //
-    void                    set_access_count(double access_count);
-    double                  get_access_count() const;
-    void                    set_last_updated_on(double last_updated_on);
-    double                  get_last_updated_on() const;
-    void                    set_last_touched_on(double last_touched_on);
-    double                  get_last_touched_on() const;
-    void                    set_allocated(double allocated);
-    double                  get_allocated() const;
-    void                    set_item_created_on(double created_on);
-    double                  get_item_created_on() const;
-    void                    set_item_timeout(double timeout);
-    double                  get_item_timeout() const;
-    void                    set_item_turn(double turn);
-    double                  get_item_turn() const;
+    void set_access_count_weight(double weight)
+    {
+        f_access_count_weight = weight;
+    }
 
-    // helper functions for computations
-    //
-    double                  normalized_accesses(double default_value = 0.0) const;
-    double                  normalized_linear_accesses(double default_value = 0.0) const;
-    double                  normalized_log_saturate_accesses() const;
+    double get_access_count_weight() const
+    {
+        return f_access_count_weight;
+    }
 
-    double                  normalized_recency(double default_value = 0.0) const;
-    double                  normalized_linear_recency(double default_value = 0.0) const;
-    double                  normalized_exp_decay_recency() const;
+    void set_recency_weight(double weight)
+    {
+        f_recency_weight = weight;
+    }
 
-    double                  normalized_allocated(double default_value = 0.0) const;
-    double                  normalized_linear_allocated(double default_value = 0.0) const;
-    double                  normalized_log_saturate_allocated() const;
+    double get_recency_weight() const
+    {
+        return f_recency_weight;
+    }
 
-    double                  normalized_age(double default_value = 0.0) const;
-    double                  normalized_linear_age(double default_value = 0.0) const;
-    double                  normalized_exp_decay_age() const;
+    void set_recency_decay_half_time(double decay_half_time)
+    {
+        if(f_recency_decay_half_time <= 0.0)
+        {
+            throw invalid_parameter("the recency decay half-time cannot be negative or null.");
+        }
+        f_recency_decay_half_time = decay_half_time;
+    }
 
-    double                  normalized_survival(double default_value = 0.0) const;
-    double                  normalized_linear_survival(double default_value = 0.0) const;
-    double                  normalized_exp_decay_survival() const;
+    double get_recency_decay_half_time() const
+    {
+        return f_recency_decay_half_time;
+    }
 
-    double                  normalized_random() const;
+    void set_allocated_weight(double weight)
+    {
+        f_allocated_weight = weight;
+    }
 
-    // the actual function used to compute the final weight
-    //
-    virtual double          compute_weight() const = 0;
+    double get_allocated_weight() const
+    {
+        return f_allocated_weight;
+    }
 
-protected:
-    // set of variable set once on initialization
-    //
+    void set_age_weight(double weight)
+    {
+        f_age_weight = weight;
+    }
+
+    double get_age_weight() const
+    {
+        return f_age_weight;
+    }
+
+    void set_age_decay_half_time(double decay_half_time)
+    {
+        if(f_age_decay_half_time <= 0.0)
+        {
+            throw invalid_parameter("the age decay half-time cannot be negative or null.");
+        }
+        f_age_decay_half_time = decay_half_time;
+    }
+
+    double get_age_decay_half_time() const
+    {
+        return f_age_decay_half_time;
+    }
+
+    void set_survival_weight(double weight)
+    {
+        f_survival_weight = weight;
+    }
+
+    double get_survival_weight() const
+    {
+        return f_survival_weight;
+    }
+
+    void set_survival_decay_half_time(double decay_half_time)
+    {
+        if(f_survival_decay_half_time <= 0.0)
+        {
+            throw invalid_parameter("the survival decay half-time cannot be negative or null.");
+        }
+        f_survival_decay_half_time = decay_half_time;
+    }
+
+    double get_survival_decay_half_time() const
+    {
+        return f_survival_decay_half_time;
+    }
+
+    void set_random_weight(double random)
+    {
+        f_random_weight = random;
+    }
+
+    double get_random_weight() const
+    {
+        return f_random_weight;
+    }
+
+    void set_linear_normalization(linear_t linear_normalization)
+    {
+        f_linear_normalization = linear_normalization;
+    }
+
+    linear_t get_linear_normalization() const
+    {
+        return f_linear_normalization;
+    }
+
+private:
     double                  f_size_eviction_trigger_percent = EVICTION_TRIGGER_DEFAULT;
     double                  f_size_eviction_reduction_percent = EVICTION_REDUCTION_DEFAULT;
     double                  f_access_count_weight = 1.0;
@@ -182,30 +225,278 @@ protected:
     double                  f_allocated_weight = 1.0;
     double                  f_age_weight = 1.0;
     double                  f_age_decay_half_time = 86400.0; // 1 day
+    double                  f_survival_weight = 1.0;
+    double                  f_survival_decay_half_time = 86400.0; // 1 day
     double                  f_random_weight = 1.0;
     linear_t                f_linear_normalization = LINEAR_ACCESSES | LINEAR_RECENCY | LINEAR_BYTE_SIZE | LINEAR_AGE;
+};
 
-    // set of variables immutable during one computing cycle
-    //
-    double                  f_cycle_started_on = 0.0;           // timestamp when weight computations started
-    double                  f_maximum_access_count = 0.0;       // from item with largest access count (approx.)
-    double                  f_maximum_allocated = 0.0;          // from item with largest memory byte size
-    double                  f_oldest_item_created_on = 0.0;     // timestamp of when the oldest item was created
-    double                  f_most_recent_item_update = 0.0;    // timestamp of the most recent item update
-    double                  f_most_recent_item_touch = 0.0;     // timestamp of the most recent item touch
-    double                  f_oldest_item_update = 0.0;         // timestamp of the item with the oldest f_last_updated_on
-    double                  f_oldest_item_touch = 0.0;          // timestamp of the item with the oldest f_last_touched_on
-    double                  f_highest_item_turn = 0.0;          // number of times the eviction algorithm ran against this item
 
-    // set of variables set for each item
+class eviction_cycle
+{
+public:
+    void set_cycle_started_on(double cycle_started_on)
+    {
+        f_started_on = cycle_started_on;
+    }
+
+    double get_cycle_started_on() const
+    {
+        return f_started_on;
+    }
+
+    void set_item_maximum_access_count(double maximum_access_count)
+    {
+        f_item_maximum_access_count = maximum_access_count;
+    }
+
+    double get_item_maximum_access_count() const
+    {
+        return f_item_maximum_access_count;
+    }
+
+    void set_item_maximum_allocated(double maximum_allocated)
+    {
+        f_item_maximum_allocated = maximum_allocated;
+    }
+
+    double get_item_maximum_allocated() const
+    {
+        return f_item_maximum_allocated;
+    }
+
+    void set_item_oldest_created_on(double created_on)
+    {
+        f_item_oldest_created_on = created_on;
+    }
+
+    double get_item_oldest_created_on() const
+    {
+        return f_item_oldest_created_on;
+    }
+
+    void set_item_most_recent_update(double updated_on)
+    {
+        f_item_most_recent_update = updated_on;
+    }
+
+    double get_item_most_recent_update() const
+    {
+        return f_item_most_recent_update;
+    }
+
+    void set_item_most_recent_touch(double touched_on)
+    {
+        f_item_most_recent_touch = touched_on;
+    }
+
+    double get_item_most_recent_touch() const
+    {
+        return f_item_most_recent_touch;
+    }
+
+    void set_item_oldest_update(double oldest_update)
+    {
+        f_item_oldest_update = oldest_update;
+    }
+
+    double get_item_oldest_update() const
+    {
+        return f_item_oldest_update;
+    }
+
+    void set_item_oldest_touch(double oldest_touch)
+    {
+        f_item_oldest_touch = oldest_touch;
+    }
+
+    double get_item_oldest_touch() const
+    {
+        return f_item_oldest_touch;
+    }
+
+    void set_item_furthest_timeout(double furthest_timeout)
+    {
+        f_item_furthest_timeout = furthest_timeout;
+    }
+
+    double get_item_furthest_timeout() const
+    {
+        return f_item_furthest_timeout;
+    }
+
+    void set_item_highest_turn(double turn)
+    {
+        f_item_highest_turn = turn;
+    }
+
+    double get_item_highest_turn() const
+    {
+        return f_item_highest_turn;
+    }
+
+    void new_cycle(
+          biased_time_t const & first_item_created_on
+        , biased_time_t const & last_item_touched_on);
+
+private:
+    double                  f_started_on = 0.0;                 // timestamp when weight computations started
+    double                  f_turn = 0.0;                       // total number of times this eviction ran
+
+    // item min/max
     //
-    double                  f_access_count = 0.0;               // the item access count, at least 1
-    double                  f_item_created_on = 0.0;            // timestamp when object was first inserted in cache
-    double                  f_last_updated_on = 0.0;            // timestamp of last set()
-    double                  f_last_touched_on = 0.0;            // timestamp of last get()
-    double                  f_item_timeout = 0.0;               // timestamp when the item is to timeout
-    double                  f_allocated = 0.0;                  // byte size of this item
-    double                  f_item_turn = 0.0;                  // number of time the eviction algorithm ran against this item
+    double                  f_item_maximum_access_count = 0.0;  // from item with largest access count (approx.)
+    double                  f_item_maximum_allocated = 0.0;     // from item with largest memory byte size
+    double                  f_item_oldest_created_on = 0.0;     // timestamp of when the oldest item was created
+    double                  f_item_most_recent_update = 0.0;    // timestamp of the most recent item update
+    double                  f_item_most_recent_touch = 0.0;     // timestamp of the most recent item touch
+    double                  f_item_oldest_update = 0.0;         // timestamp of the item with the oldest f_last_updated_on
+    double                  f_item_oldest_touch = 0.0;          // timestamp of the item with the oldest f_last_touched_on
+    double                  f_item_furthest_timeout = 0.0;      // timestamp of the item with the largest f_timeout
+    double                  f_item_highest_turn = 0.0;          // number of times the eviction algorithm ran against this item
+};
+
+
+class eviction_item
+{
+public:
+    void set_access_count(double access_count)
+    {
+        f_access_count = access_count;
+    }
+
+    double get_access_count() const
+    {
+        return f_access_count;
+    }
+
+    void set_last_updated_on(double last_updated_on)
+    {
+        f_last_updated_on = last_updated_on;
+    }
+
+    double get_last_updated_on() const
+    {
+        return f_last_updated_on;
+    }
+
+    void set_last_touched_on(double last_touched_on)
+    {
+        f_last_touched_on = last_touched_on;
+    }
+
+    double get_last_touched_on() const
+    {
+        return f_last_touched_on;
+    }
+
+    void set_allocated(double allocated)
+    {
+        f_allocated = allocated;
+    }
+
+    double get_allocated() const
+    {
+        return f_allocated;
+    }
+
+    void set_created_on(double created_on)
+    {
+        f_created_on = created_on;
+    }
+
+    double get_created_on() const
+    {
+        return f_created_on;
+    }
+
+    void set_timeout(double timeout)
+    {
+        f_timeout = timeout;
+    }
+
+    double get_timeout() const
+    {
+        return f_timeout;
+    }
+
+    void set_turn(double turn)
+    {
+        f_turn = turn;
+    }
+
+    double get_turn() const
+    {
+        return f_turn;
+    }
+
+private:
+    double                  f_access_count = 0.0;           // the item access count, at least 1
+    double                  f_created_on = 0.0;             // timestamp when object was first inserted in cache
+    double                  f_last_updated_on = 0.0;        // timestamp of last set()
+    double                  f_last_touched_on = 0.0;        // timestamp of last get()
+    double                  f_timeout = 0.0;                // timestamp when the item is to timeout
+    double                  f_allocated = 0.0;              // byte size of this item
+    double                  f_turn = 0.0;                   // number of time the eviction algorithm ran against this item
+};
+
+
+class eviction_policy
+{
+public:
+    typedef std::shared_ptr<eviction_policy>        pointer_t;
+
+    virtual                     ~eviction_policy() = default;
+
+    eviction_profile const &    profile() const { return f_profile; }
+    eviction_profile &          profile()       { return f_profile; }
+    eviction_cycle const &      cycle() const   { return f_cycle; }
+    eviction_cycle &            cycle()         { return f_cycle; }
+    eviction_item const &       item() const    { return f_item; }
+    eviction_item &             item()          { return f_item; }
+
+    // helper functions for computations
+    //
+    double                      normalized_accesses(double default_value = 0.0) const;
+    double                      normalized_linear_accesses(double default_value = 0.0) const;
+    double                      normalized_log_saturate_accesses() const;
+
+    double                      normalized_recency(double default_value = 0.0) const;
+    double                      normalized_linear_recency(double default_value = 0.0) const;
+    double                      normalized_exp_decay_recency() const;
+
+    double                      normalized_allocated(double default_value = 0.0) const;
+    double                      normalized_linear_allocated(double default_value = 0.0) const;
+    double                      normalized_log_saturate_allocated() const;
+
+    double                      normalized_age(double default_value = 0.0) const;
+    double                      normalized_linear_age(double default_value = 0.0) const;
+    double                      normalized_exp_decay_age() const;
+
+    double                      normalized_survival(double default_value = 0.0) const;
+    double                      normalized_linear_survival(double default_value = 0.0) const;
+    double                      normalized_exp_decay_survival() const;
+
+    double                      normalized_random() const;
+
+    // the actual function used to compute the final weight
+    //
+    virtual double              compute_weight() const = 0;
+
+private:
+    // variables are organized by category which makes them easier
+    // to manage:
+    //
+    // * profile_t -- what you setup on initialization; you can change those
+    //   values later, although in most cases it's configured once
+    // * eviction_cycle_t -- what the cache_impl sets up when starting a
+    //   new eviction cycle
+    // * item_t -- what the cache_impl sets up when ready to compute the
+    //   weight for an item
+    //
+    eviction_profile            f_profile = eviction_profile();
+    eviction_cycle              f_cycle = eviction_cycle();
+    eviction_item               f_item = eviction_item();
 };
 
 

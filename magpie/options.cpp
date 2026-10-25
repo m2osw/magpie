@@ -232,7 +232,7 @@ void options::set_bucket_count(std::size_t count)
     {
         // you need the EVICT_SWEEP_STRIDE to be a coprime of f_bucket_count
         // which generally means a prime larger than the maximum
-        // f_bucket_count to make sure it work with any number
+        // f_bucket_count to make sure it works with any number
         //
         throw logic_error("bucket count is a multiple of EVICT_SWEEP_STRIDE."); // LCOV_EXCL_LINE
     }

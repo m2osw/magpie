@@ -46,7 +46,7 @@ namespace magpie
 
 
 
-typedef std::int64_t            duration_t;
+typedef std::int32_t            duration_t;
 
 constexpr duration_t const      NO_TTL = -2;
 constexpr duration_t const      DEFAULT_TTL = -1;

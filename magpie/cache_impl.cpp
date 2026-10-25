@@ -357,7 +357,7 @@ void cache_impl::item_t::set_value(void const * value, std::size_t size)
 }
 
 
-snapdev::timespec_ex cache_impl::item_t::last_accessed_on() const
+biased_time_t cache_impl::item_t::last_accessed_on() const
 {
     return std::max(f_last_updated_on, f_last_touched_on);
 }
@@ -532,7 +532,7 @@ bool cache_impl::is_limit_count_reached(bool exact) const
         eviction_policy::pointer_t ep(f_opts.get_eviction_policy());
         if(ep != nullptr)
         {
-            eviction_trigger = ep->get_size_eviction_trigger_limit(eviction_trigger);
+            eviction_trigger = ep->profile().get_size_eviction_trigger_limit(eviction_trigger);
         }
         else
         {
@@ -580,7 +580,7 @@ bool cache_impl::is_capacity_reached(bool exact) const
         eviction_policy::pointer_t ep(f_opts.get_eviction_policy());
         if(ep != nullptr)
         {
-            eviction_trigger = ep->get_size_eviction_trigger_limit(eviction_trigger);
+            eviction_trigger = ep->profile().get_size_eviction_trigger_limit(eviction_trigger);
         }
         else
         {
@@ -594,8 +594,8 @@ bool cache_impl::is_capacity_reached(bool exact) const
 
 bool cache_impl::item_timed_out(item_t const & item) const
 {
-    snapdev::timespec_ex const now(time(nullptr));
-    return (item.f_timeout != snapdev::timespec_ex() && now >= item.f_timeout)
+    biased_time_t const now(biased_now());
+    return (item.f_timeout != biased_time_t() && now >= item.f_timeout)
         || (f_opts.get_maximum_lifetime() != NO_MAXIMUM_LIFETIME && now >= item.f_created_on + f_opts.get_maximum_lifetime());
 }
 
@@ -612,7 +612,7 @@ set_result_t cache_impl::set(
     , std::size_t value_size
     , duration_t ttl)
 {
-    snapdev::timespec_ex const now(snapdev::now());
+    biased_time_t const now(biased_now());
 
     if(ttl == DEFAULT_TTL)
     {
@@ -700,7 +700,7 @@ set_result_t cache_impl::set(
 #endif
         inserted.first->second.set_value(value, value_size);
 
-        if(f_first_item_created_on == snapdev::timespec_ex())
+        if(f_first_item_created_on == biased_time_t())
         {
             f_first_item_created_on = now;
         }
@@ -745,7 +745,7 @@ set_result_t cache_impl::set(
         it->second.f_allocated = item.f_allocated;
         it->second.f_ttl = item.f_ttl;
 
-        ++it->second.f_access_count;
+        it->second.f_access_count = snapdev::saturated_add(it->second.f_access_count, 1U);
         if(it->second.f_access_count > f_maximum_access_count)
         {
             f_maximum_access_count = it->second.f_access_count;
@@ -770,7 +770,7 @@ bool cache_impl::get(
     , std::size_t value_size
     , bool update_ttl)
 {
-    snapdev::timespec_ex const now(snapdev::now());
+    biased_time_t const now(biased_now());
 
     std::size_t const index(get_bucket_index(h));
     bucket_t & bucket{ f_buckets[index] };
@@ -885,7 +885,7 @@ metadata_t cache_impl::get_metadata(hash_t h)
     result.f_stale_at = it->second.f_timeout;
     if(f_opts.get_maximum_lifetime() != NO_MAXIMUM_LIFETIME)
     {
-        snapdev::timespec_ex const maximum_stale_at(it->second.f_created_on + f_opts.get_maximum_lifetime());
+        biased_time_t const maximum_stale_at(it->second.f_created_on + f_opts.get_maximum_lifetime());
         result.f_stale_at = std::min(result.f_stale_at, maximum_stale_at);
     }
 
@@ -1033,20 +1033,7 @@ bool cache_impl::evict_stats()
 
     if(f_evict_stats_index == 0)
     {
-        f_evict_stat_started_on = time(nullptr);
-        ep->set_cycle_started_on(f_evict_stat_started_on);
-
-        // reset the variables before gathering their value from the
-        // cached items
-        //
-        f_evict_stat_max_access_count = 1;
-        f_evict_stat_max_allocated = 1;
-        f_evict_stat_oldest_item = snapdev::timespec_ex::max();
-        f_evict_stat_most_recent_item_update = f_first_item_created_on;
-        f_evict_stat_most_recent_item_touch = f_last_item_touched_on;
-        f_evict_stat_oldest_item_update = snapdev::timespec_ex::max();
-        f_evict_stat_oldest_item_touch = snapdev::timespec_ex::max();
-        f_evict_stat_highest_item_turn = 0;
+        ep->cycle().new_cycle(f_first_item_created_on, f_last_item_touched_on);
 
         f_evict_stats_offset = snapdev::random(0UL, f_buckets.size() - 1UL);
     }
@@ -1070,58 +1057,42 @@ bool cache_impl::evict_stats()
             skip_empty = bucket.f_entries.empty();
             for(auto & e : bucket.f_entries)
             {
-                if(e.second.f_access_count > f_evict_stat_max_access_count)
+                if(e.second.f_access_count > ep->cycle().get_item_maximum_access_count())
                 {
-                    f_evict_stat_max_access_count = e.second.f_access_count;
+                    ep->cycle().set_item_maximum_access_count(e.second.f_access_count);
                 }
-                if(e.second.f_allocated > f_evict_stat_max_allocated)
+                if(e.second.f_allocated > ep->cycle().get_item_maximum_allocated())
                 {
-                    f_evict_stat_max_allocated = e.second.f_allocated;
+                    ep->cycle().set_item_maximum_allocated(e.second.f_allocated);
                 }
-                if(e.second.f_created_on < f_evict_stat_oldest_item)
+                if(e.second.f_created_on < ep->cycle().get_item_oldest_created_on())
                 {
-                    f_evict_stat_oldest_item = e.second.f_created_on;
+                    ep->cycle().set_item_oldest_created_on(e.second.f_created_on);
                 }
-                if(e.second.f_last_updated_on > f_evict_stat_most_recent_item_update)
+                if(e.second.f_last_updated_on > ep->cycle().get_item_most_recent_update())
                 {
-                    f_evict_stat_most_recent_item_update = e.second.f_last_updated_on;
+                    ep->cycle().set_item_most_recent_update(e.second.f_last_updated_on);
                 }
-                if(e.second.f_last_touched_on > f_evict_stat_most_recent_item_touch)
+                if(e.second.f_last_touched_on > ep->cycle().get_item_most_recent_touch())
                 {
-                    f_evict_stat_most_recent_item_touch = e.second.f_last_touched_on;
+                    ep->cycle().set_item_most_recent_touch(e.second.f_last_touched_on);
                 }
-                if(e.second.f_last_updated_on < f_evict_stat_oldest_item_update)
+                if(e.second.f_last_updated_on < ep->cycle().get_item_oldest_update())
                 {
-                    f_evict_stat_oldest_item_update = e.second.f_last_updated_on;
+                    ep->cycle().set_item_oldest_update(e.second.f_last_updated_on);
                 }
-                if(e.second.f_last_touched_on < f_evict_stat_oldest_item_touch)
+                if(e.second.f_last_touched_on < ep->cycle().get_item_oldest_touch())
                 {
-                    f_evict_stat_oldest_item_touch = e.second.f_last_touched_on;
+                    ep->cycle().set_item_oldest_touch(e.second.f_last_touched_on);
                 }
-                if(e.second.f_turn < f_evict_stat_highest_item_turn)
+                if(e.second.f_timeout > ep->cycle().get_item_furthest_timeout())
                 {
-                    f_evict_stat_highest_item_turn = e.second.f_turn;
+                    ep->cycle().set_item_furthest_timeout(e.second.f_timeout);
                 }
-
-                // this needs a better timer because when full, the cache
-                // triggers an eviction which means this could happen very
-                // often, more often than expected making the account count
-                // reach zero quickly
-                //
-                std::uint64_t const decay(f_opts.get_access_count_decay());
-                if(decay != NO_DECAY)
+                if(e.second.f_turn < ep->cycle().get_item_highest_turn())
                 {
-                    if(e.second.f_access_count > decay)
-                    {
-                        e.second.f_access_count -= decay;
-                    }
-                    else
-                    {
-                        e.second.f_access_count = 0;
-                    }
+                    ep->cycle().set_item_highest_turn(e.second.f_turn);
                 }
-
-                ++e.second.f_turn;
             }
         }
 
@@ -1129,16 +1100,6 @@ bool cache_impl::evict_stats()
         if(f_evict_stats_index >= f_buckets.size())
         {
             f_evict_stats_index = 0;
-
-            ep->set_maximum_access_count(f_evict_stat_max_access_count);
-            ep->set_maximum_allocated(f_evict_stat_max_allocated);
-            ep->set_oldest_item_created_on(f_evict_stat_oldest_item.to_sec());
-            ep->set_most_recent_item_update(f_evict_stat_most_recent_item_update.to_sec());
-            ep->set_most_recent_item_touch(f_evict_stat_most_recent_item_touch.to_sec());
-            ep->set_oldest_item_update(f_evict_stat_oldest_item_update.to_sec());
-            ep->set_oldest_item_touch(f_evict_stat_oldest_item_touch.to_sec());
-            ep->set_highest_item_turn(f_evict_stat_highest_item_turn);
-
             return true;
         }
     }
@@ -1175,13 +1136,13 @@ bool cache_impl::evict_weights()
         // is reached
         //
         std::size_t const current_size(size());
-        std::size_t const eviction_trigger(ep->get_size_eviction_trigger_limit(f_opts.get_count_limit()));
+        std::size_t const eviction_trigger(ep->profile().get_size_eviction_trigger_limit(f_opts.get_count_limit()));
         if(current_size >= floor(eviction_trigger))
         {
             // add a little bit so by the time we start evicting we
             // get at least enough entries
             //
-            double const eviction_count(f_opts.get_count_limit() * (1.0 - ep->get_size_eviction_reduction_percent()) + 10.0);
+            double const eviction_count(f_opts.get_count_limit() * (1.0 - ep->profile().get_size_eviction_reduction_percent()) + 10.0);
             if(eviction_count > f_evict_smallest_weights_count)
             {
                 f_evict_smallest_weights_count = eviction_count;
@@ -1213,21 +1174,43 @@ std::cerr << "--- evict_stats() count set to = "
             skip_empty = bucket.f_entries.empty();
             for(auto & e : bucket.f_entries)
             {
+                // do this ahead so the first time we have turn == 1
+                //
+                ++e.second.f_turn;
+
                 // setup this item data in the eviction policy object
                 //
-                ep->set_access_count(e.second.f_access_count);
-                ep->set_last_updated_on(e.second.f_last_updated_on.to_sec());
-                ep->set_last_touched_on(e.second.f_last_touched_on.to_sec());
-                ep->set_allocated(e.second.f_allocated);
-                ep->set_item_created_on(e.second.f_created_on.to_sec());
-                ep->set_item_timeout(e.second.f_timeout.to_sec());
-                ep->set_item_turn(e.second.f_turn);
+                ep->item().set_access_count(e.second.f_access_count);
+                ep->item().set_created_on(e.second.f_created_on);
+                ep->item().set_last_updated_on(e.second.f_last_updated_on);
+                ep->item().set_last_touched_on(e.second.f_last_touched_on);
+                ep->item().set_timeout(e.second.f_timeout);
+                ep->item().set_allocated(e.second.f_allocated);
+                ep->item().set_turn(e.second.f_turn);
 
                 // now compute this item weight
                 //
                 double const weight(ep->compute_weight());
 
-                // register the weight if possible
+                // this needs a better timer because when full, the cache
+                // triggers an eviction which means this could happen very
+                // often, more often than expected making the account count
+                // reach zero quickly
+                //
+                std::uint64_t const decay(f_opts.get_access_count_decay());
+                if(decay != NO_DECAY)
+                {
+                    if(e.second.f_access_count > decay)
+                    {
+                        e.second.f_access_count -= decay;
+                    }
+                    else
+                    {
+                        e.second.f_access_count = 0;
+                    }
+                }
+
+                // register the weight if it's a match
                 //
                 if(f_evict_smallest_weights.size() < f_evict_smallest_weights_count)
                 {
@@ -1270,8 +1253,8 @@ bool cache_impl::evict_organize_by_bucket()
     std::size_t current_count(size());
     std::size_t current_allocated(allocated());
 
-    std::size_t const count_limit(ep->get_size_eviction_reduction_limit(f_opts.get_count_limit()));
-    std::size_t const capacity_limit(ep->get_size_eviction_reduction_limit(f_opts.get_capacity_limit()));
+    std::size_t const count_limit(ep->profile().get_size_eviction_reduction_limit(f_opts.get_count_limit()));
+    std::size_t const capacity_limit(ep->profile().get_size_eviction_reduction_limit(f_opts.get_capacity_limit()));
 
     auto need_more_evictions([count_limit, capacity_limit, &current_count, &current_allocated]()
         {
@@ -1322,8 +1305,8 @@ bool cache_impl::evict()
 
     if(!f_evict_targets_by_bucket.empty())
     {
-        std::size_t const count_limit(ep->get_size_eviction_reduction_limit(f_opts.get_count_limit()));
-        std::size_t const capacity_limit(ep->get_size_eviction_reduction_limit(f_opts.get_capacity_limit()));
+        std::size_t const count_limit(ep->profile().get_size_eviction_reduction_limit(f_opts.get_count_limit()));
+        std::size_t const capacity_limit(ep->profile().get_size_eviction_reduction_limit(f_opts.get_capacity_limit()));
 
         auto need_more_evictions([this, count_limit, capacity_limit]()
             {

@@ -69,7 +69,7 @@ void cleanup_runner::tracker_t::compute_next_cleanup()
     {
         duration_t const interval(cache->get_cleanup_interval());
         duration_t const diff(snapdev::now() - f_next_cleanup);
-        int const intervals_to_add(diff / interval + 1);
+        std::int64_t const intervals_to_add(diff / interval + 1);
         f_next_cleanup += interval * intervals_to_add;
     }
 }
@@ -146,7 +146,7 @@ void cleanup_runner::manage_cache(cache_impl::pointer_t impl)
 
     // insert new cache
     //
-    f_caches.emplace_back(std::make_shared<tracker_t>(impl, snapdev::now() + impl->get_cleanup_interval()));
+    f_caches.emplace_back(std::make_shared<tracker_t>(impl, snapdev::now() + static_cast<std::int64_t>(impl->get_cleanup_interval())));
 
     wakeup();
 }

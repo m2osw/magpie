@@ -32,7 +32,7 @@
 
 // C++
 //
-//#include    <cstdint>
+#include    <cstdint>
 
 
 // C
@@ -46,7 +46,11 @@ namespace magpie
 
 
 
+typedef std::uint32_t                   biased_time_t;
+
+
 time_t          magpie_start_time();
+biased_time_t   biased_now();
 
 
 

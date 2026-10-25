@@ -99,12 +99,12 @@ CATCH_TEST_CASE("evict_least_recent", "[thread]")
             opts.set_count_limit(VALUES_COUNT);
 
             magpie::eviction_policy_add::pointer_t ep(std::make_shared<magpie::eviction_policy_add>());
-            ep->set_size_eviction_trigger_percent(0.95);
-            ep->set_size_eviction_reduction_percent(0.9);
-            ep->set_access_count_weight(0.0);
-            ep->set_recency_weight(1.0);
-            ep->set_allocated_weight(0.0);
-            ep->set_age_weight(0.0);
+            ep->profile().set_size_eviction_trigger_percent(0.95);
+            ep->profile().set_size_eviction_reduction_percent(0.9);
+            ep->profile().set_access_count_weight(0.0);
+            ep->profile().set_recency_weight(1.0);
+            ep->profile().set_allocated_weight(0.0);
+            ep->profile().set_age_weight(0.0);
             opts.set_eviction_policy(ep);
 
             // construct
@@ -210,12 +210,12 @@ CATCH_TEST_CASE("evict_least_frequent", "[thread]")
             opts.set_count_limit(VALUES_COUNT);
 
             magpie::eviction_policy_add::pointer_t ep(std::make_shared<magpie::eviction_policy_add>());
-            ep->set_size_eviction_trigger_percent(0.95);
-            ep->set_size_eviction_reduction_percent(0.9);
-            ep->set_access_count_weight(1.0);
-            ep->set_recency_weight(0.0);
-            ep->set_allocated_weight(0.0);
-            ep->set_age_weight(0.0);
+            ep->profile().set_size_eviction_trigger_percent(0.95);
+            ep->profile().set_size_eviction_reduction_percent(0.9);
+            ep->profile().set_access_count_weight(1.0);
+            ep->profile().set_recency_weight(0.0);
+            ep->profile().set_allocated_weight(0.0);
+            ep->profile().set_age_weight(0.0);
             opts.set_eviction_policy(ep);
 
             // construct
