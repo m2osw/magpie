@@ -517,7 +517,7 @@ double eviction_policy::normalized_exp_decay_recency() const
 
 double eviction_policy::normalized_allocated(double default_value) const
 {
-    if((f_profile.get_linear_normalization() & LINEAR_BYTE_SIZE) != 0)
+    if((f_profile.get_linear_normalization() & LINEAR_ALLOCATED) != 0)
     {
         return normalized_linear_allocated(default_value);
     }
@@ -602,7 +602,7 @@ double eviction_policy::normalized_exp_decay_age() const
 
 double eviction_policy::normalized_survival(double default_value) const
 {
-    if((profile().get_linear_normalization() & LINEAR_AGE) != 0)
+    if((profile().get_linear_normalization() & LINEAR_SURVIVAL) != 0)
     {
         return normalized_linear_survival(default_value);
     }
@@ -635,6 +635,17 @@ double eviction_policy::normalized_exp_decay_survival() const
 }
 
 
+double eviction_policy::normalized_turn(double default_value) const
+{
+    double const max_turn(cycle().get_item_highest_turn());
+    if(snapdev::quiet_floating_point_equal(max_turn, 0.0))
+    {
+        return default_value;
+    }
+    return 1.0 - item().get_turn() / max_turn;
+}
+
+
 double eviction_policy::normalized_random() const
 {
     return snapdev::random(0.0, 1.0);
@@ -649,26 +660,37 @@ double eviction_policy_add::compute_weight() const
     double weight(0.0);
     if(snapdev::quiet_floating_point_not_equal(profile().get_access_count_weight(), 0.0))
     {
+std::cout << "access count: " << profile().get_access_count_weight() << " * " << normalized_accesses() << std::endl;
         weight += profile().get_access_count_weight() * normalized_accesses();
     }
     if(snapdev::quiet_floating_point_not_equal(profile().get_recency_weight(), 0.0))
     {
+std::cout << "recency: " << profile().get_recency_weight() << " * " << normalized_recency() << std::endl;
         weight += profile().get_recency_weight() * normalized_recency();
     }
     if(snapdev::quiet_floating_point_not_equal(profile().get_allocated_weight(), 0.0))
     {
+std::cout << "allocated: " << profile().get_allocated_weight() << " * " << normalized_allocated() << std::endl;
         weight += profile().get_allocated_weight() * normalized_allocated();
     }
     if(snapdev::quiet_floating_point_not_equal(profile().get_age_weight(), 0.0))
     {
+std::cout << "age: " << profile().get_age_weight() << " * " << normalized_age() << std::endl;
         weight += profile().get_age_weight() * normalized_age();
     }
     if(snapdev::quiet_floating_point_not_equal(profile().get_survival_weight(), 0.0))
     {
+std::cout << "survival: " << profile().get_survival_weight() << " * " << normalized_survival() << std::endl;
         weight += profile().get_survival_weight() * normalized_survival();
+    }
+    if(snapdev::quiet_floating_point_not_equal(profile().get_turn_weight(), 0.0))
+    {
+std::cout << "turn: " << profile().get_turn_weight() << " * " << normalized_turn() << std::endl;
+        weight += profile().get_turn_weight() * normalized_turn();
     }
     if(snapdev::quiet_floating_point_not_equal(profile().get_random_weight(), 0.0))
     {
+std::cout << "random: " << profile().get_random_weight() << " * " << normalized_random() << std::endl;
         weight += profile().get_random_weight() * normalized_random();
     }
     return weight;
@@ -726,6 +748,25 @@ double eviction_policy_cost_benefit_ratio::compute_weight() const
     return (profile().get_access_count_weight() * normalized_accesses()
                 + profile().get_recency_weight() * normalized_recency())
                      / pow(item().get_allocated(), profile().get_allocated_weight());
+}
+
+
+double eviction_policy_slru::compute_weight() const
+{
+    if(item().get_access_count() <= f_minimum_access_count)
+    {
+        // return the oldest first if not old enough
+        //
+        return normalized_age();
+    }
+    else
+    {
+        // return the normal LRU number
+        //
+        // the +2 is to place all of these after the FIFO items above
+        //
+        return normalized_recency() + 2.0;
+    }
 }
 
 

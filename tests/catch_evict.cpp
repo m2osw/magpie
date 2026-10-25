@@ -105,6 +105,8 @@ CATCH_TEST_CASE("evict_least_recent", "[thread]")
             ep->profile().set_recency_weight(1.0);
             ep->profile().set_allocated_weight(0.0);
             ep->profile().set_age_weight(0.0);
+            ep->profile().set_survival_weight(0.0);
+            ep->profile().set_random_weight(0.0);
             opts.set_eviction_policy(ep);
 
             // construct
@@ -216,6 +218,8 @@ CATCH_TEST_CASE("evict_least_frequent", "[thread]")
             ep->profile().set_recency_weight(0.0);
             ep->profile().set_allocated_weight(0.0);
             ep->profile().set_age_weight(0.0);
+            ep->profile().set_survival_weight(0.0);
+            ep->profile().set_random_weight(0.0);
             opts.set_eviction_policy(ep);
 
             // construct

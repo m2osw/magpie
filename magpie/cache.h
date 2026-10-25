@@ -123,6 +123,16 @@ public:
         return f_impl->erase(hash_key(k));
     }
 
+    bool ban(K const & k)
+    {
+        return f_impl->ban(hash_key(k));
+    }
+
+    void unban(K const & k)
+    {
+        f_impl->unban(hash_key(k));
+    }
+
     [[nodiscard]] bool contains(K const & k) const
     {
         return f_impl->contains(hash_key(k));
@@ -152,8 +162,8 @@ public:
     requires requires(T t, A a) { { t + a } -> std::convertible_to<T>; }
     T add(K const & k, T const & a)
     {
-        detail::hash_t const key(has_key(k));
-        lock_interface::pointer_t lock(f_impl->get_lock(key));
+        detail::hash_t const h(hash_key(k));
+        lock_interface::pointer_t lock(f_impl->get_lock(h));
         if(!lock->supports_recursivity())
         {
             throw incompatible_lock(
@@ -162,16 +172,16 @@ public:
                 + "\".");
         }
         lock_guard guard(lock);
-        std::optional<T> v(get_impl(key, true, false));
+        std::optional<T> v(get_impl(h, true, false));
         if(v.has_value())
         {
             T result(v.value() + a);
-            set(key, result);
+            set(h, result);
             return result;
         }
         else
         {
-            set(key, a);
+            set(h, a);
             return T(a);
         }
     }

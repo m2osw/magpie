@@ -63,8 +63,9 @@ typedef std::uint32_t                   linear_t;
 
 constexpr linear_t const                LINEAR_ACCESSES  = 0x0001;
 constexpr linear_t const                LINEAR_RECENCY   = 0x0002;
-constexpr linear_t const                LINEAR_BYTE_SIZE = 0x0004;
+constexpr linear_t const                LINEAR_ALLOCATED = 0x0004;
 constexpr linear_t const                LINEAR_AGE       = 0x0008;
+constexpr linear_t const                LINEAR_SURVIVAL  = 0x0010;
 
 constexpr double const                  EVICTION_TRIGGER_DEFAULT = 0.95;
 constexpr double const                  EVICTION_REDUCTION_DEFAULT = 0.9;
@@ -196,6 +197,16 @@ public:
         return f_survival_decay_half_time;
     }
 
+    void set_turn_weight(double turn)
+    {
+        f_turn_weight = turn;
+    }
+
+    double get_turn_weight() const
+    {
+        return f_turn_weight;
+    }
+
     void set_random_weight(double random)
     {
         f_random_weight = random;
@@ -219,16 +230,19 @@ public:
 private:
     double                  f_size_eviction_trigger_percent = EVICTION_TRIGGER_DEFAULT;
     double                  f_size_eviction_reduction_percent = EVICTION_REDUCTION_DEFAULT;
-    double                  f_access_count_weight = 1.0;
-    double                  f_recency_weight = 1.0;
+
+    double                  f_access_count_weight = 0.0;
+    double                  f_recency_weight = 0.0;
     double                  f_recency_decay_half_time = 3600.0; // 1 hour
-    double                  f_allocated_weight = 1.0;
-    double                  f_age_weight = 1.0;
+    double                  f_allocated_weight = 0.0;
+    double                  f_age_weight = 0.0;
     double                  f_age_decay_half_time = 86400.0; // 1 day
-    double                  f_survival_weight = 1.0;
+    double                  f_survival_weight = 0.0;
     double                  f_survival_decay_half_time = 86400.0; // 1 day
-    double                  f_random_weight = 1.0;
-    linear_t                f_linear_normalization = LINEAR_ACCESSES | LINEAR_RECENCY | LINEAR_BYTE_SIZE | LINEAR_AGE;
+    double                  f_turn_weight = 0.0;
+    double                  f_random_weight = 0.0;
+
+    linear_t                f_linear_normalization = LINEAR_ACCESSES | LINEAR_RECENCY | LINEAR_ALLOCATED | LINEAR_AGE | LINEAR_SURVIVAL;
 };
 
 
@@ -477,6 +491,8 @@ public:
     double                      normalized_linear_survival(double default_value = 0.0) const;
     double                      normalized_exp_decay_survival() const;
 
+    double                      normalized_turn(double default_value = 0.0) const;
+
     double                      normalized_random() const;
 
     // the actual function used to compute the final weight
@@ -556,6 +572,20 @@ class eviction_policy_cost_benefit_ratio
 {
 public:
     virtual double          compute_weight() const override;
+};
+
+
+class eviction_policy_slru
+    : public eviction_policy
+{
+public:
+    virtual double          compute_weight() const override;
+
+    void                    set_minimum_access_count(double count)  { f_minimum_access_count = count; }
+    double                  get_minimum_access_count() const        { return f_minimum_access_count; }
+
+private:
+    double                  f_minimum_access_count = 1.0;
 };
 
 

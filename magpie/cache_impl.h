@@ -99,6 +99,7 @@ enum class set_result_t
     SET_RESULT_REJECTED_COUNT,
     SET_RESULT_REJECTED_TOO_LARGE,
     SET_RESULT_REJECTED_EXPIRED,
+    SET_RESULT_REJECTED_BANNED,
 
     SET_RESULT_OTHER,
 };
@@ -198,6 +199,9 @@ public:
 
     bool                    erase(hash_t h);
 
+    bool                    ban(hash_t h);
+    void                    unban(hash_t h);
+
     bool                    contains(hash_t h) const;
 
     bool                    purge_expired();
@@ -247,11 +251,13 @@ private:
 
     static constexpr std::size_t const  EVICT_SMALLEST_WEIGHT_COUNT = 100;
 
+    typedef std::set<hash_t>            banned_key_t;
     typedef std::unordered_map<std::size_t, std::vector<hash_t>>
                                         organized_evict_items_t;
 
     cache_interface *       f_parent = nullptr;
     options const           f_opts;
+    banned_key_t            f_banned_keys = banned_key_t();
     bucket_t::vector_t      f_buckets = bucket_t::vector_t();
     std::size_t             f_current_capacity_usage = 0;
     std::size_t             f_current_count_usage = 0;

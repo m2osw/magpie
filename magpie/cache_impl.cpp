@@ -436,7 +436,6 @@ bool cache_impl::is_cleanup_worker_required() const
 
 void cache_impl::start_cleanup_worker()
 {
-std::cerr << gettid() << ": --- start cleanup worker now... ---" << std::endl;
     std::call_once(
           f_cleanup_thread_started
         , &start_stop_cleanup_worker
@@ -454,7 +453,7 @@ std::cerr << gettid() << ": --- cache_done() called... calling stop ---" << std:
 
 void cache_impl::activate_eviction()
 {
-std::cerr << gettid() << ": --- cache_done() called... calling stop ---" << std::endl;
+std::cerr << gettid() << ": --- activate_eviction() called... calling wakeup ---" << std::endl;
     start_stop_cleanup_worker(shared_from_this(), cleanup_worker_action_t::CLEANUP_WORKER_ACTION_WAKEUP);
 }
 
@@ -665,6 +664,11 @@ set_result_t cache_impl::set(
 
     // -------------------- LOCK --------------------
     lock_guard lock(bucket.f_lock, true);
+
+    if(f_banned_keys.contains(h))
+    {
+        return set_result_t::SET_RESULT_REJECTED_BANNED;
+    }
 
     if(ttl != DEFAULT_TTL && ttl != NO_TTL && ttl > 0)
     {
@@ -909,6 +913,35 @@ bool cache_impl::erase(hash_t h)
     f_current_capacity_usage -= it->second.f_allocated;
     bucket.f_entries.erase(it);
     return true;
+}
+
+
+bool cache_impl::ban(hash_t h)
+{
+    {
+        std::size_t const index(get_bucket_index(h));
+        bucket_t & bucket{ f_buckets[index] };
+
+        // -------------------- LOCK --------------------
+        lock_guard lock(bucket.f_lock, true);
+        f_banned_keys.insert(h);
+    }
+    return erase(h);
+}
+
+
+void cache_impl::unban(hash_t h)
+{
+    std::size_t const index(get_bucket_index(h));
+    bucket_t & bucket{ f_buckets[index] };
+
+    // -------------------- LOCK --------------------
+    lock_guard lock(bucket.f_lock, true);
+    auto it(f_banned_keys.find(h));
+    if(it != f_banned_keys.end())
+    {
+        f_banned_keys.erase(it);
+    }
 }
 
 

@@ -34,9 +34,9 @@
 
 
 
-// snapdev
+// C++
 //
-//#include    <snapdev/not_used.h>
+#include    <numeric>
 
 
 // last include
@@ -228,7 +228,16 @@ void options::set_bucket_count(std::size_t count)
         throw out_of_range("bucket count out of range.");
     }
 
-    if(count % EVICT_SWEEP_STRIDE == 0)
+    bool valid(false);
+    if constexpr (EVICT_SWEEP_STRIDE > MAX_BUCKET_COUNT)
+    {
+        valid = count % EVICT_SWEEP_STRIDE == count;
+    }
+    else
+    {
+        valid = std::gcd(count, EVICT_SWEEP_STRIDE) == 1;
+    }
+    if(!valid)
     {
         // you need the EVICT_SWEEP_STRIDE to be a coprime of f_bucket_count
         // which generally means a prime larger than the maximum
