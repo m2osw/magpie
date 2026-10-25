@@ -495,12 +495,12 @@ double eviction_policy::normalized_recency(double default_value) const
 
 double eviction_policy::normalized_linear_recency(double default_value) const
 {
-    double const access_age(cycle().get_item_most_recent_update() - cycle().get_item_oldest_update());
+    double const access_age(cycle().get_item_most_recent_touch() - cycle().get_item_oldest_touch());
     if(snapdev::quiet_floating_point_equal(access_age, 0.0))
     {
         return default_value;
     }
-    return (f_item.get_last_touched_on() - cycle().get_item_oldest_update()) / access_age;
+    return (f_item.get_last_touched_on() - cycle().get_item_oldest_touch()) / access_age;
 }
 
 

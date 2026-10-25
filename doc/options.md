@@ -83,21 +83,23 @@ In the geometric approach, you use the inverse instead:
 
 The algorithms have access to many Unix timestamps (`time_t`).
 
-    ---+----+----+----+----+----+----+----+----+----+----... future ...
+    ---+----+----+----+----+----+----+----+----+----+----+----... future ...
+       |    |    |    |    |    |    |    |    |    |    |
+       |    |    |    |    |    |    |    |    |    |    +---> [P] item purge time (item: f_timeout)
        |    |    |    |    |    |    |    |    |    |
-       |    |    |    |    |    |    |    |    |    +---> [P] item purge time (f_item_timeout)
+       |    |    |    |    |    |    |    |    |    +---> [E] eviction start time (cycle: f_cycle_started_on)
        |    |    |    |    |    |    |    |    |
-       |    |    |    |    |    |    |    |    +---> [E] eviction start time (f_cycle_started_on) -- per cycle
+       |    |    |    |    |    |    |    |    +---> [R] last item touch (cycle: f_item_most_recent_touch)
        |    |    |    |    |    |    |    |
-       |    |    |    |    |    |    |    +---> [R] last item touch (f_most_recent_item_touch) -- 
+       |    |    |    |    |    |    |    +---> [U] last item update (cycle: f_item_most_recent_update)
        |    |    |    |    |    |    |
-       |    |    |    |    |    |    +---> [U] last item update (f_most_recent_item_update) -- one specific item per cycle
+       |    |    |    |    |    |    +---> [T] item last touched (f_item_last_touched_on)
        |    |    |    |    |    |
-       |    |    |    |    |    +---> [T] item last touched (f_item_last_touched_on)
+       |    |    |    |    |    +---> [L] item last updated (f_item_last_updated_on)
        |    |    |    |    |
-       |    |    |    |    +---> [L] item last updaed (f_item_last_updated_on)
+       |    |    |    |    +---> [Q] oldest touch (cycle: f_item_oldest_touch)
        |    |    |    |
-       |    |    |    +---> [O] oldest update (f_item_oldest_update) -- one specific item per cycle
+       |    |    |    +---> [O] oldest update (cycle: f_item_oldest_update) -- one specific item per cycle
        |    |    |
        |    |    +---> [C] item created on (f_item_created_on)
        |    |
@@ -135,7 +137,10 @@ The ADD algorithm can be used to setup the eviction mode to LRU.
 
 Equation:
 
-$$\frac{T - O}{U - O}$$
+$$W_{recency}\frac{T - Q}{R - Q}$$
+
+That that this equation uses the "touched" timestamp, which is the last get().
+It ignores the set().
 
 
 ### Setup for LFU mode
