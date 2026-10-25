@@ -83,6 +83,12 @@ biased_time_t biased_now()
 }
 
 
+time_t unbias_biased_time(biased_time_t biased_time)
+{
+    return static_cast<time_t>(biased_time) + g_start_time;
+}
+
+
 
 } // namespace magpie
 // vim: ts=4 sw=4 et

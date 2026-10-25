@@ -51,6 +51,7 @@ typedef std::uint32_t                   biased_time_t;
 
 time_t          magpie_start_time();
 biased_time_t   biased_now();
+time_t          unbias_biased_time(biased_time_t biased_time);
 
 
 

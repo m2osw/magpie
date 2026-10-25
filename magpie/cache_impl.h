@@ -71,22 +71,22 @@ struct metadata_t
 
     operator bool () const
     {
-        return f_created_on != biased_time_t();
+        return f_created_on != time_t();
     }
 
-    biased_time_t last_accessed_on() const
+    time_t last_accessed_on() const
     {
         return std::max(f_last_updated_on, f_last_touched_on);
     }
 
     std::size_t             f_size = 0;
     std::size_t             f_allocated = 0;
-    std::uint64_t           f_access_count = 0;
-    biased_time_t           f_created_on = biased_time_t();
-    biased_time_t           f_last_updated_on = biased_time_t();
-    biased_time_t           f_last_touched_on = biased_time_t();
-    biased_time_t           f_stale_at = biased_time_t();
-    biased_time_t           f_timeout = biased_time_t();
+    std::uint32_t           f_access_count = 0;
+    time_t                  f_created_on = time_t();
+    time_t                  f_last_updated_on = time_t();
+    time_t                  f_last_touched_on = time_t();
+    time_t                  f_stale_at = time_t();
+    time_t                  f_timeout = time_t();
     duration_t              f_ttl = NO_TTL;
 };
 

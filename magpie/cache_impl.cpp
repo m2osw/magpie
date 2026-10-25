@@ -874,18 +874,18 @@ metadata_t cache_impl::get_metadata(hash_t h)
     result.f_size = it->second.f_size;
     result.f_allocated = it->second.f_allocated;
     result.f_access_count = it->second.f_access_count;
-    result.f_created_on = it->second.f_created_on;
-    result.f_last_updated_on = it->second.f_last_updated_on;
-    result.f_last_touched_on = it->second.f_last_touched_on;
+    result.f_created_on = unbias_biased_time(it->second.f_created_on);
+    result.f_last_updated_on = unbias_biased_time(it->second.f_last_updated_on);
+    result.f_last_touched_on = unbias_biased_time(it->second.f_last_touched_on);
+    result.f_timeout = unbias_biased_time(it->second.f_timeout);
     result.f_ttl = it->second.f_ttl;
-    result.f_timeout = it->second.f_timeout;
 
     // compute the time when the data is considered stale
     //
-    result.f_stale_at = it->second.f_timeout;
+    result.f_stale_at = unbias_biased_time(it->second.f_timeout);
     if(f_opts.get_maximum_lifetime() != NO_MAXIMUM_LIFETIME)
     {
-        biased_time_t const maximum_stale_at(it->second.f_created_on + f_opts.get_maximum_lifetime());
+        time_t const maximum_stale_at(unbias_biased_time(it->second.f_created_on) + f_opts.get_maximum_lifetime());
         result.f_stale_at = std::min(result.f_stale_at, maximum_stale_at);
     }
 
