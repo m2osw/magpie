@@ -218,7 +218,7 @@ The ADD algorithm can be used to setup the eviction mode to LRU.
 
 Equation:
 
-$$W_{eviction} = \frac{item access count}{maximum access count}$$
+$$W_{eviction} = \frac{A}{K}$$
 
 ### Setup for LRFU mode
 
