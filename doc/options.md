@@ -144,9 +144,9 @@ like so:
 Some variables can be expressed as follow:
 
 $$\begin{aligned}
-B = \max{Y_{1}, Y_{2}, ..., Y_{n}}
-H = \max{N_{1}, N_{2}, ..., N_{n}}
-K = \max{A_{1}, A_{2}, ..., A_{n}}
+B = \max(Y_{1}, Y_{2}, ..., Y_{n})\\
+H = \max(N_{1}, N_{2}, ..., N_{n})\\
+K = \max(A_{1}, A_{2}, ..., A_{n})
 \end{aligned}$$
 
 ### Setup for LRU mode
