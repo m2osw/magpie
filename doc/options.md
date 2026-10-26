@@ -114,11 +114,11 @@ The algorithms have access to many Unix timestamps (`time_t`).
 Some variables can be expressed as follow:
 
 $$\begin{aligned}
-M = \max(P_1, P_2, ..., P_n)\\
-R = \max(T_1, T_2, ..., T_n)\\
-U = \max(L_1, L_2, ..., L_n)\\
-Q = \min(T_1, T_2, ..., T_n)\\
-O = \min(L_1, L_2, ..., L_n)
+M = \max(P_1, P_2, \dots, P_n)\\
+R = \max(T_1, T_2, \dots, T_n)\\
+U = \max(L_1, L_2, \dots, L_n)\\
+Q = \min(T_1, T_2, \dots, T_n)\\
+O = \min(L_1, L_2, \dots, L_n)
 \end{aligned}$$
 
 
@@ -144,9 +144,9 @@ like so:
 Some variables can be expressed as follow:
 
 $$\begin{aligned}
-B = \max(Y_{1}, Y_{2}, ..., Y_{n})\\
-H = \max(N_{1}, N_{2}, ..., N_{n})\\
-K = \max(A_{1}, A_{2}, ..., A_{n})
+B = \max(Y_{1}, Y_{2}, \dots, Y_{n})\\
+H = \max(N_{1}, N_{2}, \dots, N_{n})\\
+K = \max(A_{1}, A_{2}, \dots, A_{n})
 \end{aligned}$$
 
 ### Setup for LRU mode
@@ -184,9 +184,9 @@ Since we keep the dates separate, you can also use the recency write
 
 Equations:
 
-$$W_{eviction} = W_{recency}\frac{\max(L, T) - \min(O, Q)}{\max(U, R) - \min(O, Q)}$$
-$$W_{eviction} = W_{recency write}\frac{L - O}{U - O}$$
-$$W_{eviction} = W_{recency read}\frac{T - Q}{R - Q}$$
+$$W_{eviction} = W_{recency}\frac{\max(L, T) - \min(O, Q)}{\max(U, R) - \min(O, Q)}\\
+W_{eviction} = W_{\text{recency write}}\frac{L - O}{U - O}\\
+W_{eviction} = W_{\text{recency read}}\frac{T - Q}{R - Q}$$
 
 The default is to use the most recent of either "updated" or "touched".
 This is the standard LRU which does not make a distinction between
