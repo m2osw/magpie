@@ -114,10 +114,10 @@ The algorithms have access to many Unix timestamps (`time_t`).
 Some variables can be expressed as follow:
 
 $$\begin{aligned}
-M = \max(P_1, P_2, ..., P_n)
-R = \max(T_1, T_2, ..., T_n)
-U = \max(L_1, L_2, ..., L_n)
-Q = \min(T_1, T_2, ..., T_n)
+M = \max(P_1, P_2, ..., P_n)\\
+R = \max(T_1, T_2, ..., T_n)\\
+U = \max(L_1, L_2, ..., L_n)\\
+Q = \min(T_1, T_2, ..., T_n)\\
 O = \min(L_1, L_2, ..., L_n)
 \end{aligned}$$
 
