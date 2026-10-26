@@ -386,7 +386,7 @@ network, and 1.0 for remote network). If the time to fetch the item can
 vary greatly, it is suggested to use the Exponentially Weighted Moving
 Average (EWMA) equation instead of using the last time on its own:
 
-$$cost_{new} = weight \times cost_{new} + (1 - weight) \times \text{cost_{old}}$$
+$$cost_{new} = weight \times cost_{new} + (1 - weight) \times cost_{old}$$
 
 So if fetching data may take from 1ms to 10s, you should clamp the value
 and then divide by 10 to normalize it to 0 to 1.0. Once you've done that,

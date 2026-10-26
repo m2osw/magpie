@@ -40,6 +40,7 @@ DECLARE_EXCEPTION(magpie_exception, incompatible_lock);
 DECLARE_EXCEPTION(magpie_exception, incompatible_type);
 DECLARE_EXCEPTION(magpie_exception, invalid_parameter);
 DECLARE_EXCEPTION(magpie_exception, value_not_found);
+DECLARE_EXCEPTION(magpie_exception, update_failed);
 
 
 

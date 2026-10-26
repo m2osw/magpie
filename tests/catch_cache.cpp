@@ -482,21 +482,54 @@ CATCH_TEST_CASE("cache", "[cache]")
 
         magpie::cache<int, std::string> cache(opts);
 
-        for(int k(1);; ++k)
+        int k(1);
+        for(;; ++k)
         {
-            std::string const v(SNAP_CATCH2_NAMESPACE::random_string(1, 200, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
+            std::string const v(SNAP_CATCH2_NAMESPACE::random_string(30, 200, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
             magpie::set_result_t status(cache.set(k, v));
             if(status == magpie::set_result_t::SET_RESULT_REJECTED_CAPACITY)
             {
                 CATCH_REQUIRE_FALSE(cache.get(k).has_value());
                 break;
             }
-            else
+
+            // capacity not reached yet, add the item
+            //
+            CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_ADDED);
+            CATCH_REQUIRE(cache.get(k).has_value());
+            CATCH_REQUIRE(cache.get(k).value() == v);
+            CATCH_REQUIRE(cache.size() == static_cast<std::size_t>(k));
+        }
+
+        // append to strings
+        //
+        // IMPORTANT: even though it looks like we're adding very
+        //            short strings; the std::string sizing makes use
+        //            of a capacity feature and thus even with a +1 char
+        //            we may end up adding 200 bytes at once (doubling
+        //            the capacity)
+        //
+        for(int i(1);; ++i)
+        {
+            if(i >= k)
             {
-                CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_ADDED);
-                CATCH_REQUIRE(cache.get(k).has_value());
-                CATCH_REQUIRE(cache.get(k).value() == v);
-                CATCH_REQUIRE(cache.size() == static_cast<std::size_t>(k));
+                i = 1;
+            }
+            std::optional<std::string> v(cache.get(i));
+            CATCH_REQUIRE(v.has_value());
+            std::string s(v.value());
+            std::string const add(SNAP_CATCH2_NAMESPACE::random_string(1, 5, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
+            s += add;
+            magpie::set_result_t status(cache.set(i, s));
+            if(status == magpie::set_result_t::SET_RESULT_REJECTED_CAPACITY)
+            {
+                // in this second case, since we were updating that item,
+                // the result is that it just got kicked out of the cache
+                // entirely; otherwise it would return an invalid item if
+                // retrieved from the cache
+                //
+                CATCH_REQUIRE_FALSE(cache.contains(i));
+                break;
             }
         }
     }

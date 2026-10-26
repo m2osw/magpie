@@ -186,7 +186,7 @@ public:
     std::size_t             size() const;
     bool                    is_limit_count_reached(bool exact) const;
     std::size_t             allocated() const;
-    bool                    is_capacity_reached(bool exact) const;
+    bool                    is_capacity_reached(bool exact, std::size_t extra_bytes = 0) const;
     bool                    item_timed_out(item_t const & item) const;
     std::size_t             get_bucket_index(hash_t h) const;
 

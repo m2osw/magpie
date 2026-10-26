@@ -561,7 +561,7 @@ std::size_t cache_impl::allocated() const
 }
 
 
-bool cache_impl::is_capacity_reached(bool exact) const
+bool cache_impl::is_capacity_reached(bool exact, std::size_t extra_bytes) const
 {
     // limit defined?
     //
@@ -587,7 +587,7 @@ bool cache_impl::is_capacity_reached(bool exact) const
         }
     }
 
-    return allocated() >= eviction_trigger;
+    return allocated() + extra_bytes >= eviction_trigger;
 }
 
 
@@ -690,7 +690,7 @@ set_result_t cache_impl::set(
                 return set_result_t::SET_RESULT_REJECTED_COUNT;
             }
 
-            if(is_capacity_reached(true))
+            if(is_capacity_reached(true, allocated_bytes))
             {
                 activate_eviction();
                 return set_result_t::SET_RESULT_REJECTED_CAPACITY;
@@ -735,7 +735,9 @@ set_result_t cache_impl::set(
         && f_opts.get_capacity_limit() != 0)
         {
             std::size_t const additional(item.f_allocated - it->second.f_allocated);
-            if(f_current_capacity_usage + additional >= f_opts.get_capacity_limit())
+std::cerr << "--- allocated in ADD: item is " << item.f_allocated << " +existing item: " << it->second.f_allocated << " diff = " << additional << "\n";
+            if(is_capacity_reached(true, additional))
+            //if(f_current_capacity_usage + additional >= f_opts.get_capacity_limit())
             {
                 bucket.f_entries.erase(it);
                 activate_eviction();

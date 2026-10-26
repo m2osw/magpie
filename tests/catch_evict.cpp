@@ -141,6 +141,11 @@ CATCH_TEST_CASE("evict_least_recent", "[thread]")
                 }
             }
 
+            // the eviction has not kicked in yet, we can check these here
+            //
+            cache->verify_current_count();
+            cache->verify_current_capacity();
+
             // read many times the first 50% (indexes from pos array)
             //
             for(int count(0); count < 10; ++count)
@@ -160,8 +165,10 @@ CATCH_TEST_CASE("evict_least_recent", "[thread]")
                     }
                 }
 
-                cache->verify_current_count();
-                cache->verify_current_capacity();
+                // these require us to pause the background thread, which isn't done yet
+                //
+                //cache->verify_current_count();
+                //cache->verify_current_capacity();
                 sleep(1);
             }
 
@@ -179,6 +186,11 @@ CATCH_TEST_CASE("evict_least_recent", "[thread]")
                 }
             }
             CATCH_REQUIRE(missing > VALUES_COUNT * (1.0 - 0.92)); // it should be closer to 0.9 than 0.92, but this is an approximation for the test
+
+            // the eviction is done now so we can check these here
+            //
+            cache->verify_current_count();
+            cache->verify_current_capacity();
 
             // done, everything gets destroyed
             //
@@ -241,6 +253,11 @@ CATCH_TEST_CASE("evict_least_frequent", "[thread]")
             }
             std::shuffle(std::begin(pos), std::end(pos), g);
 
+            // the eviction has not kicked in yet, we can check these here
+            //
+            cache->verify_current_count();
+            cache->verify_current_capacity();
+
             // mark the lowest values as hot by increasing their counters
             // to 10 and make sure they do not disappear while doing so
             //
@@ -273,8 +290,10 @@ CATCH_TEST_CASE("evict_least_frequent", "[thread]")
                     }
                 }
 
-                cache->verify_current_count();
-                cache->verify_current_capacity();
+                // these require us to pause the background thread, which isn't done yet
+                //
+                //cache->verify_current_count();
+                //cache->verify_current_capacity();
                 sleep(1);
             }
 
@@ -292,6 +311,11 @@ CATCH_TEST_CASE("evict_least_frequent", "[thread]")
                 }
             }
             CATCH_REQUIRE(missing > VALUES_COUNT * (1.0 - 0.92)); // it should be closer to 0.9 than 0.92, but this is an approximation for the test
+
+            // the eviction is done now so we can check these here
+            //
+            cache->verify_current_count();
+            cache->verify_current_capacity();
 
             // done, everything gets destroyed
             //
@@ -380,6 +404,11 @@ CATCH_TEST_CASE("evict_largest_first", "[thread]")
                 cache->set(k, buffers[k]);
             }
 
+            // the eviction has not kicked in yet, we can check these here
+            //
+            cache->verify_current_count();
+            cache->verify_current_capacity();
+
             // now the eviction is going to kick in within about 3 seconds
             // and remove the 200 largest entries; the kept array tells us
             // which buffers are expected to not go away
@@ -408,11 +437,18 @@ CATCH_TEST_CASE("evict_largest_first", "[thread]")
                     }
                 }
 
-                cache->verify_current_count();
-                cache->verify_current_capacity();
+                // these require us to pause the background thread, which isn't done yet
+                //
+                //cache->verify_current_count();
+                //cache->verify_current_capacity();
                 sleep(1);
             }
             while(missing < VALUES_COUNT - reduced_size);
+
+            // the eviction is done now so we can check these here
+            //
+            cache->verify_current_count();
+            cache->verify_current_capacity();
 
             // done, everything gets destroyed
             //
@@ -501,6 +537,11 @@ CATCH_TEST_CASE("evict_smallest_first", "[thread]")
                 cache->set(k, buffers[k]);
             }
 
+            // the eviction has not kicked in yet, we can check these here
+            //
+            cache->verify_current_count();
+            cache->verify_current_capacity();
+
             // now the eviction is going to kick in within about 3 seconds
             // and remove the 200 largest entries; the kept array tells us
             // which buffers are expected to not go away
@@ -529,11 +570,18 @@ CATCH_TEST_CASE("evict_smallest_first", "[thread]")
                     }
                 }
 
-                cache->verify_current_count();
-                cache->verify_current_capacity();
+                // these require us to pause the background thread, which isn't done yet
+                //
+                //cache->verify_current_count();
+                //cache->verify_current_capacity();
                 sleep(1);
             }
             while(missing < reduced_size);
+
+            // the eviction is done now so we can check these here
+            //
+            cache->verify_current_count();
+            cache->verify_current_capacity();
 
             // done, everything gets destroyed
             //

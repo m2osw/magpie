@@ -176,7 +176,14 @@ public:
         if(v.has_value())
         {
             T result(v.value() + a);
-            set(h, result);
+            set_result_t r(set(h, result));
+            if(r != set_result_t::SET_RESULT_UPDATED)
+            {
+                throw update_failed(
+                      "the add(), inc(), dec() failed to update the value properly ("
+                    + std::to_string(static_cast<int>(r))
+                    + ").");
+            }
             return result;
         }
         else
