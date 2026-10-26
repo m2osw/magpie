@@ -363,7 +363,7 @@ algorithm.
 However, we can use a slightly different equation allowing for
 a decay over time and still mixes the frequency and size like so:
 
-$$W_{eviction} = \underbrace{\frac{\frac{A}{K} \times G}{\ln(Y)}}_{\text{asset value}} - \underbrace{W_{decay} \frac{E - \max(L, T)}{E - \min(U, R)}}_{\text{idle penalty}}$$
+$$\Large{W_{eviction} = \underbrace{\frac{\frac{A}{K} \times G}{\ln(Y)}}_{\text{asset value}} - \underbrace{W_{decay} \frac{E - \max(L, T)}{E - \min(U, R)}}_{\text{idle penalty}}}$$
 
 Since the $W_{decay}$ weight represents an age, this algorithm uses
 the age weight. Here is the setup you can use:
