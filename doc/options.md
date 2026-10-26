@@ -184,9 +184,11 @@ Since we keep the dates separate, you can also use the recency write
 
 Equations:
 
-$$W_{eviction} = W_{recency}\frac{\max(L, T) - \min(O, Q)}{\max(U, R) - \min(O, Q)}\\
+$$\begin{aligned}
+W_{eviction} = W_{recency}\frac{\max(L, T) - \min(O, Q)}{\max(U, R) - \min(O, Q)}\\
 W_{eviction} = W_{\text{recency write}}\frac{L - O}{U - O}\\
-W_{eviction} = W_{\text{recency read}}\frac{T - Q}{R - Q}$$
+W_{eviction} = W_{\text{recency read}}\frac{T - Q}{R - Q}
+\end{aligned}$$
 
 The default is to use the most recent of either "updated" or "touched".
 This is the standard LRU which does not make a distinction between
