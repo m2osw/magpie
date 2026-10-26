@@ -264,6 +264,10 @@ get a FIFO eviction algorithm.
 This way, the date when the item was created is used one to one. So the
 oldest items get removed first. No other parameters are taken in account.
 
+Equation:
+
+$$W_{eviction} = W_{\text{age weight}}\frac{E-C}{E-F}$$
+
 ### Setup for Random mode
 
 Although I personally find that to be a strange choice, it is possible
@@ -278,6 +282,10 @@ that got the smallest number.
     ep->profile().set_random_weight(1.0);
     opts.set_eviction_policy(ep);
 
+Equation:
+
+$$W_{eviction} = W_{random} \text{random}(0, 1)$$
+
 ### Most Recently Used (MRU)
 
 This one selection is generally counter intuitive since if you have
@@ -291,6 +299,12 @@ a negative weight.
     ep->profile().set_size_eviction_reduction_percent(0.9);
     ep->profile().set_recency_weight(-1.0);
     opts.set_eviction_policy(ep);
+
+Equation:
+
+As expected, we reuse the exact same equation as the LRU:
+
+$$W_{eviction} = W_{recency}\frac{\max(L, T) - \min(O, Q)}{\max(U, R) - \min(O, Q)}$$
 
 ### Segmented Least Recently Used (SLRU)
 
@@ -314,6 +328,17 @@ ADD algorithm:
 **NOTE:** All the FIFO-ed items will appear before the LRU items. So
           if a sufficient number of FIFO items is present, those are
           evicted and no old item is.
+
+Equation:
+
+$$W_{eviction} = \begin{cases}
+\frac{E-C}{E-F} & \text{access count} <= 5\\
+\frac{T - O}{R - O} + 2 & \text{otherwise}
+\end{cases}$$
+
+**Note:** The `... + 2` in the second equation is to always beat the first
+          equation. That way, as long as you have fresh items, they are
+          going to be evicted first no matter what.
 
 #### Clock
 
@@ -340,5 +365,10 @@ times the eviction algorithm ran against that one item.
 
 This code sample sets up your cache as a standard MRU but also
 protects brand new items from being evicted too soon.
+
+Equation:
+
+$$W_{eviction} = W_{recency}\frac{\max(L, T) - \min(O, Q)}{\max(U, R) - \min(O, Q)}
++ W_{\text{turn weight}}\frac{N}{H}$$
 
 # vim: ts=4 sw=4 et
