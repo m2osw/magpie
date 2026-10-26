@@ -218,7 +218,7 @@ The ADD algorithm can be used to setup the eviction mode to LRU.
 
 Equation:
 
-$$W_{eviction} = \frac{A}{K}$$
+$$W_{eviction} = W_{\text{access count}}\frac{A}{K}$$
 
 ### Setup for LRFU mode
 
@@ -245,6 +245,10 @@ advantage to the more frequently used items, you could use:
           is conceptually normalized to a number from 0.0 to 1.0. However,
           since the eviction is processed on a live cache, it is possible
           that some of the numbers end up being more than 1.0 or negative.
+
+Equation:
+
+$$W_{eviction} = W_{recency}\frac{\max(L, T) - \min(O, Q)}{\max(U, R) - \min(O, Q)} + W_{\text{access count}}\frac{A}{K}$$
 
 ### Setup for FIFO mode
 

@@ -131,9 +131,8 @@ private:
 
         void                    set_value(void const * value, std::size_t size);
 
-        item_t const &          operator = (item_t const & rhs);
+        item_t const &          operator = (item_t const & rhs) = delete; // there is a commented out version of this -- at the moment it's not used so not tested, removing until really needed.
 
-        biased_time_t           last_accessed_on() const;
         void                    decay_access_count(std::uint64_t const dec);
 
         // set once on creation -- first set()

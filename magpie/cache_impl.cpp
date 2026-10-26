@@ -258,68 +258,68 @@ cache_impl::item_t::~item_t()
 }
 
 
-cache_impl::item_t const & cache_impl::item_t::operator = (item_t const & rhs)
-{
-    if(this != &rhs)
-    {
-        if(rhs.f_size != 0
-        && rhs.f_value != nullptr)
-        {
-            if(f_parent != rhs.f_parent)
-            {
-                throw logic_error("all the items in the cache must have the exact same parent."); // LCOV_EXCL_LINE
-            }
-            if(f_size != 0
-            && f_size != rhs.f_size)
-            {
-                throw logic_error("all the items in the cache must have the exact same size."); // LCOV_EXCL_LINE
-            }
-
-            if(f_value != nullptr)
-            {
-                f_parent->destroy(f_value, f_size);
-            }
-            else
-            {
-                f_value = malloc(rhs.f_size);
-                if(f_value == nullptr)
-                {
-                    throw std::bad_alloc(); // LCOV_EXCL_LINE
-                }
-                f_size = rhs.f_size;
-            }
-            try
-            {
-                f_parent->copy(rhs.f_value, f_value, f_size);
-            }
-            catch(...)
-            {
-                free(f_value);
-                f_value = nullptr;
-                f_size = 0;
-            }
-        }
-        else if(f_value != nullptr)
-        {
-            free(f_value);
-            f_value = nullptr;
-            f_size = 0;
-        }
-
-        f_created_on = rhs.f_created_on;
-
-        f_allocated = rhs.f_allocated;
-        f_ttl = rhs.f_ttl;
-        f_last_updated_on = rhs.f_last_updated_on;
-
-        f_access_count = rhs.f_access_count;
-        f_last_touched_on = rhs.f_last_touched_on;
-        f_timeout = rhs.f_timeout;
-        f_turn = rhs.f_turn;
-    }
-
-    return *this;
-}
+//cache_impl::item_t const & cache_impl::item_t::operator = (item_t const & rhs)
+//{
+//    if(this != &rhs)
+//    {
+//        if(rhs.f_size != 0
+//        && rhs.f_value != nullptr)
+//        {
+//            if(f_parent != rhs.f_parent)
+//            {
+//                throw logic_error("all the items in the cache must have the exact same parent."); // LCOV_EXCL_LINE
+//            }
+//            if(f_size != 0
+//            && f_size != rhs.f_size)
+//            {
+//                throw logic_error("all the items in the cache must have the exact same size."); // LCOV_EXCL_LINE
+//            }
+//
+//            if(f_value != nullptr)
+//            {
+//                f_parent->destroy(f_value, f_size);
+//            }
+//            else
+//            {
+//                f_value = malloc(rhs.f_size);
+//                if(f_value == nullptr)
+//                {
+//                    throw std::bad_alloc(); // LCOV_EXCL_LINE
+//                }
+//                f_size = rhs.f_size;
+//            }
+//            try
+//            {
+//                f_parent->copy(rhs.f_value, f_value, f_size);
+//            }
+//            catch(...)
+//            {
+//                free(f_value);
+//                f_value = nullptr;
+//                f_size = 0;
+//            }
+//        }
+//        else if(f_value != nullptr)
+//        {
+//            free(f_value);
+//            f_value = nullptr;
+//            f_size = 0;
+//        }
+//
+//        f_created_on = rhs.f_created_on;
+//
+//        f_allocated = rhs.f_allocated;
+//        f_ttl = rhs.f_ttl;
+//        f_last_updated_on = rhs.f_last_updated_on;
+//
+//        f_access_count = rhs.f_access_count;
+//        f_last_touched_on = rhs.f_last_touched_on;
+//        f_timeout = rhs.f_timeout;
+//        f_turn = rhs.f_turn;
+//    }
+//
+//    return *this;
+//}
 
 
 void cache_impl::item_t::set_value(void const * value, std::size_t size)
@@ -357,10 +357,6 @@ void cache_impl::item_t::set_value(void const * value, std::size_t size)
 }
 
 
-biased_time_t cache_impl::item_t::last_accessed_on() const
-{
-    return std::max(f_last_updated_on, f_last_touched_on);
-}
 
 
 
