@@ -30,21 +30,11 @@
 #include    <magpie/exception.h>
 #include    <magpie/utils.h>
 
-//#include    <magpie/cleanup_runner.h>
-//#include    <magpie/lock_mutex.h>
-//#include    <magpie/lock_recursive_rwlock.h>
-//#include    <magpie/lock_rwlock.h>
-
 
 
 // snapdev
 //
 //#include    <snapdev/timespec_ex.h>
-
-
-// murmur3
-//
-//#include    <murmur3/murmur3.h>
 
 
 // C++
@@ -62,14 +52,17 @@ namespace magpie
 typedef std::uint32_t                   linear_t;
 
 constexpr linear_t const                LINEAR_ACCESSES  = 0x0001;
-constexpr linear_t const                LINEAR_RECENCY   = 0x0002;
-constexpr linear_t const                LINEAR_ALLOCATED = 0x0004;
-constexpr linear_t const                LINEAR_AGE       = 0x0008;
-constexpr linear_t const                LINEAR_SURVIVAL  = 0x0010;
+constexpr linear_t const                LINEAR_UPDATES   = 0x0002;
+constexpr linear_t const                LINEAR_TOUCHES   = 0x0004;
+constexpr linear_t const                LINEAR_RECENCY   = 0x0008;
+constexpr linear_t const                LINEAR_ALLOCATED = 0x0010;
+constexpr linear_t const                LINEAR_AGE       = 0x0020;
+constexpr linear_t const                LINEAR_SURVIVAL  = 0x0040;
 
-constexpr double const                  EVICTION_TRIGGER_DEFAULT = 0.95;
+constexpr double const                  EVICTION_TRIGGER_DEFAULT   = 0.95;
 constexpr double const                  EVICTION_REDUCTION_DEFAULT = 0.9;
 
+constexpr double const                  NO_COST = 1.0;
 
 
 class eviction_profile
@@ -113,6 +106,26 @@ public:
     double get_access_count_weight() const
     {
         return f_access_count_weight;
+    }
+
+    void set_update_count_weight(double weight)
+    {
+        f_update_count_weight = weight;
+    }
+
+    double get_update_count_weight() const
+    {
+        return f_update_count_weight;
+    }
+
+    void set_touch_count_weight(double weight)
+    {
+        f_touch_count_weight = weight;
+    }
+
+    double get_touch_count_weight() const
+    {
+        return f_touch_count_weight;
     }
 
     void set_recency_weight(double weight)
@@ -159,6 +172,19 @@ public:
         return f_recency_decay_half_time;
     }
 
+    /** \brief Set the weight used to tweak the cache eviction.
+     *
+     * This parameter is used by the ADD algorithm if not 0.0. It
+     * uses the normalized allocated sizes of items compared against
+     * the item with the largest amount of allocated memory.
+     *
+     * \warning
+     * Keep in mind that this weight is \em inverted, meaning that if
+     * you want to remove the largest files, you must use a negative
+     * weight instead of a positive one.
+     *
+     * \param[in] weight  Weight used against the allocated memory values.
+     */
     void set_allocated_weight(double weight)
     {
         f_allocated_weight = weight;
@@ -252,6 +278,8 @@ private:
     double                  f_size_eviction_reduction_percent = EVICTION_REDUCTION_DEFAULT;
 
     double                  f_access_count_weight = 0.0;
+    double                  f_update_count_weight = 0.0;
+    double                  f_touch_count_weight = 0.0;
     double                  f_recency_weight = 0.0;
     double                  f_recency_write_weight = 0.0;
     double                  f_recency_read_weight = 0.0;
@@ -281,14 +309,24 @@ public:
         return f_started_on;
     }
 
-    void set_item_maximum_access_count(double maximum_access_count)
+    void set_item_maximum_update_count(double maximum_update_count)
     {
-        f_item_maximum_access_count = maximum_access_count;
+        f_item_maximum_update_count = maximum_update_count;
     }
 
-    double get_item_maximum_access_count() const
+    double get_item_maximum_update_count() const
     {
-        return f_item_maximum_access_count;
+        return f_item_maximum_update_count;
+    }
+
+    void set_item_maximum_touch_count(double maximum_touch_count)
+    {
+        f_item_maximum_touch_count = maximum_touch_count;
+    }
+
+    double get_item_maximum_touch_count() const
+    {
+        return f_item_maximum_touch_count;
     }
 
     void set_item_maximum_allocated(double maximum_allocated)
@@ -391,7 +429,8 @@ private:
 
     // item min/max
     //
-    double                  f_item_maximum_access_count = 0.0;  // from item with largest access count (approx.)
+    double                  f_item_maximum_update_count = 0.0;  // from item with largest update count (set)
+    double                  f_item_maximum_touch_count = 0.0;   // from item with largest touch count (get)
     double                  f_item_maximum_allocated = 0.0;     // from item with largest memory byte size
     double                  f_item_oldest_created_on = 0.0;     // timestamp of when the oldest item was created
     double                  f_item_most_recent_update = 0.0;    // timestamp of the most recent item update
@@ -406,14 +445,24 @@ private:
 class eviction_item
 {
 public:
-    void set_access_count(double access_count)
+    void set_update_count(double update_count)
     {
-        f_access_count = access_count;
+        f_update_count = update_count;
     }
 
-    double get_access_count() const
+    double get_update_count() const
     {
-        return f_access_count;
+        return f_update_count;
+    }
+
+    void set_touch_count(double touch_count)
+    {
+        f_touch_count = touch_count;
+    }
+
+    double get_touch_count() const
+    {
+        return f_touch_count;
     }
 
     void set_last_updated_on(double last_updated_on)
@@ -471,6 +520,16 @@ public:
         return f_timeout;
     }
 
+    void set_cost(double cost)
+    {
+        f_cost = cost;
+    }
+
+    double get_cost() const
+    {
+        return f_cost;
+    }
+
     void set_turn(double turn)
     {
         f_turn = turn;
@@ -482,12 +541,14 @@ public:
     }
 
 private:
-    double                  f_access_count = 0.0;           // the item access count, at least 1
+    double                  f_update_count = 0.0;           // the item update count (set)
+    double                  f_touch_count = 0.0;            // the item touch count (get)
     double                  f_created_on = 0.0;             // timestamp when object was first inserted in cache
     double                  f_last_updated_on = 0.0;        // timestamp of last set()
     double                  f_last_touched_on = 0.0;        // timestamp of last get()
     double                  f_timeout = 0.0;                // timestamp when the item is to timeout
     double                  f_allocated = 0.0;              // byte size of this item
+    double                  f_cost = NO_COST;               // the cost of evicting this item
     double                  f_turn = 0.0;                   // number of time the eviction algorithm ran against this item
 };
 
@@ -511,6 +572,14 @@ public:
     double                      normalized_accesses(double default_value = 0.0) const;
     double                      normalized_linear_accesses(double default_value = 0.0) const;
     double                      normalized_log_saturate_accesses() const;
+
+    double                      normalized_updates(double default_value = 0.0) const;
+    double                      normalized_linear_updates(double default_value = 0.0) const;
+    double                      normalized_log_saturate_updates() const;
+
+    double                      normalized_touches(double default_value = 0.0) const;
+    double                      normalized_linear_touches(double default_value = 0.0) const;
+    double                      normalized_log_saturate_touches() const;
 
     double                      normalized_recency(double default_value = 0.0) const;
     double                      normalized_linear_recency(double default_value = 0.0) const;
@@ -626,11 +695,19 @@ class eviction_policy_slru
 public:
     virtual double          compute_weight() const override;
 
-    void                    set_minimum_access_count(double count)  { f_minimum_access_count = count; }
-    double                  get_minimum_access_count() const        { return f_minimum_access_count; }
+    void                    set_minimum_touch_count(double count)  { f_minimum_touch_count = count; }
+    double                  get_minimum_touch_count() const        { return f_minimum_touch_count; }
 
 private:
-    double                  f_minimum_access_count = 1.0;
+    double                  f_minimum_touch_count = 1.0;
+};
+
+
+class eviction_policy_gdsf
+    : public eviction_policy
+{
+public:
+    virtual double          compute_weight() const override;
 };
 
 

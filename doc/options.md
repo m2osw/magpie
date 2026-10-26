@@ -135,6 +135,7 @@ like so:
 
     [A] item access count (item: f_access_count)
     [B] item with the largets allocated memory (cycle: f_item_maximum_allocated)
+    [G] item cost (item: f_cost)
     [H] item with the highest turn (cycle: f_item_highest_turn)
     [K] maximum access count (cycle: f_item_maximum_access_count)
     [Y] item allocated memory (item: f_allocated)
@@ -205,6 +206,9 @@ changing the weight of each one. That is similar (but not 100% equivalent)
 to using the default LRU (with the `set_recency_weight()` function) but
 with the ability to give the write or the read a higher priority.
 
+**Note:** Our LRU runs until a certain amount of items or memory were
+          released to satisfy the cache size limits. This is at times
+          called a Weithed LRU (W-LRU),
 
 ### Setup for LFU mode
 
@@ -219,6 +223,10 @@ The ADD algorithm can be used to setup the eviction mode to LRU.
 Equation:
 
 $$W_{eviction} = W_{\text{access count}}\frac{A}{K}$$
+
+**Note:** Our LFU runs until a certain amount of items or memory were
+          released to satisfy the cache size limits. This is at times
+          called a Weithed LFU (W-LFU),
 
 ### Setup for LRFU mode
 
@@ -338,7 +346,60 @@ $$W_{eviction} = \begin{cases}
 
 **Note:** The `... + 2` in the second equation is to always beat the first
           equation. That way, as long as you have fresh items, they are
-          going to be evicted first no matter what.
+          going to be evicted first no matter what. Also, the age and
+          recency weights do not get used.
+
+#### Greedy Dual-Size Frequency (GDSF)
+
+The Greed Dual-Size Frequency algorithm implements a duality between the
+size and the frequency of the items in the cache.
+
+$$H_{i} = L + \frac{Frequency_{i} \times Costs}{Size_{i}}$$
+
+Where $L = 1.0$ at first and then it gets set to $H_{i}$. Since we do
+not support dynamic loops like this, we do not support this exact
+algorithm.
+
+However, we can use a slightly different equation allowing for
+a decay over time and still mixes the frequency and size like so:
+
+$$W_{eviction} = \underbrace{\frac{\frac{A}{K} \times G}{\ln(Y)}}_{\text{asset value}} - \underbrace{W_{decay} \frac{E - \max(L, T)}{E - \min(U, R)}}_{\text{idle penalty}}$$
+
+Since the $W_{decay}$ weight represents an age, this algorithm uses
+the age weight. Here is the setup you can use:
+
+    magpie::eviction_policy_slru::pointer_t ep(std::make_shared<magpie::eviction_policy_gdsf>());
+    ep->profile().set_size_eviction_trigger_percent(0.95);
+    ep->profile().set_size_eviction_reduction_percent(0.9);
+    ep->profile().set_age_weight(1.0);
+    opts.set_eviction_policy(ep);
+
+If you do not want the asset penalty, set the age weight to 0.0. It then
+only takes the asset value in consideration. The problem with this setup
+is that once an item grows strong, even if not used anymore for a very
+long period of time, it stays in your cache.
+
+The cost is defined by you when you set() the item in the cache.
+It should be a number from 0.0 to 1.0. This can be a constant representing
+the cost of the source (i.e. 0.01 for SSD, 0.05 for HDD, 0.5 for local
+network, and 1.0 for remote network). If the time to fetch the item can
+vary greatly, it is suggested to use the Exponentially Weighted Moving
+Average (EWMA) equation instead of using the last time on its own:
+
+$$cost_{new} = weight \times cost_{new} + (1 - weight) \times \text{cost_{old}}$$
+
+So if fetching data may take from 1ms to 10s, you should clamp the value
+and then divide by 10 to normalize it to 0 to 1.0. Once you've done that,
+apply the EWMA equation and use the result in the cache::set() call.
+
+Something like this:
+
+    snapdev::timespec_ex const start(snapdev::now());
+    ...retrieve new data...
+    snapdev::timespec_ex const duration(snapdev::now() - start);
+    double const cost_new(std::min(duration.to_sec() / 10.0, 1.0));
+    double const cost_old(...retrieve this value from somewhere...);
+    double const ewma(weight * cost_new + (1.0 - weight) * cost_old);
 
 #### Clock
 
@@ -368,7 +429,8 @@ protects brand new items from being evicted too soon.
 
 Equation:
 
-$$W_{eviction} = W_{recency}\frac{\max(L, T) - \min(O, Q)}{\max(U, R) - \min(O, Q)}
-+ W_{\text{turn weight}}\frac{N}{H}$$
+$$W_{eviction} = W_{recency}\frac{\max(L, T) - \min(O, Q)}{\max(U, R) - \min(O, Q)} + W_{\text{turn weight}}\frac{N}{H}$$
 
-# vim: ts=4 sw=4 et
+<!--
+vim: ts=4 sw=4 et
+-->

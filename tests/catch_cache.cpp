@@ -325,6 +325,57 @@ CATCH_TEST_CASE("cache", "[cache]")
     }
     CATCH_END_SECTION()
 
+    CATCH_START_SECTION("cache: object was banned")
+    {
+        magpie::options opts;
+
+        magpie::cache<std::string, std::string> cache(opts);
+
+        std::string const banned(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
+        cache.ban(banned);
+
+        CATCH_REQUIRE(cache.size() == 0);
+
+        // first value add a non-banned item
+        //
+        std::string const k(SNAP_CATCH2_NAMESPACE::random_string(33, 64, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
+        std::string const v(SNAP_CATCH2_NAMESPACE::random_string(1, 64, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
+        magpie::set_result_t status(cache.set(k, v));
+        CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_ADDED);
+        CATCH_REQUIRE(cache.get(k).has_value());
+        CATCH_REQUIRE(cache.get(k).value() == v);
+        CATCH_REQUIRE(cache.size() == 1);
+
+        // then try to add that value with the banned key
+        //
+        status = cache.set(banned, v);
+        CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_REJECTED_BANNED);
+        CATCH_REQUIRE_FALSE(cache.get(banned).has_value());
+        CATCH_REQUIRE(cache.get(k).has_value()); // and k is still around
+        CATCH_REQUIRE(cache.get(k).value() == v);
+        CATCH_REQUIRE(cache.size() == 1);
+
+        // but if we unban, then we can add it
+        //
+        cache.unban(banned);
+        status = cache.set(banned, v);
+        CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_ADDED);
+        CATCH_REQUIRE(cache.get(banned).has_value());
+        CATCH_REQUIRE(cache.get(banned).value() == v);
+        CATCH_REQUIRE(cache.get(k).has_value());
+        CATCH_REQUIRE(cache.get(k).value() == v);
+        CATCH_REQUIRE(cache.size() == 2);
+
+        // now if we re-ban it, the value is gone
+        //
+        cache.ban(banned);
+        CATCH_REQUIRE_FALSE(cache.get(banned).has_value());
+        CATCH_REQUIRE(cache.get(k).has_value());
+        CATCH_REQUIRE(cache.get(k).value() == v);
+        CATCH_REQUIRE(cache.size() == 1);
+    }
+    CATCH_END_SECTION()
+
     CATCH_START_SECTION("cache: too many objects in the cache, more are not accepted")
     {
         magpie::options opts;
@@ -420,6 +471,33 @@ CATCH_TEST_CASE("cache", "[cache]")
             cache.erase(3);
             CATCH_REQUIRE(cache.size() == 9UL);
             CATCH_REQUIRE_FALSE(cache.get(3).has_value());
+        }
+    }
+    CATCH_END_SECTION()
+
+    CATCH_START_SECTION("cache: objects using too much memory, reject additional entries")
+    {
+        magpie::options opts;
+        opts.set_capacity_limit(10'000);
+
+        magpie::cache<int, std::string> cache(opts);
+
+        for(int k(1);; ++k)
+        {
+            std::string const v(SNAP_CATCH2_NAMESPACE::random_string(1, 200, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
+            magpie::set_result_t status(cache.set(k, v));
+            if(status == magpie::set_result_t::SET_RESULT_REJECTED_CAPACITY)
+            {
+                CATCH_REQUIRE_FALSE(cache.get(k).has_value());
+                break;
+            }
+            else
+            {
+                CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_ADDED);
+                CATCH_REQUIRE(cache.get(k).has_value());
+                CATCH_REQUIRE(cache.get(k).value() == v);
+                CATCH_REQUIRE(cache.size() == static_cast<std::size_t>(k));
+            }
         }
     }
     CATCH_END_SECTION()

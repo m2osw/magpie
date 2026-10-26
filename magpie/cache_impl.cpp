@@ -217,9 +217,11 @@ cache_impl::item_t::item_t(item_t const & rhs)
     , f_created_on(rhs.f_created_on)
     , f_value(nullptr)
     , f_allocated(rhs.f_allocated)
+    , f_cost(rhs.f_cost)
     , f_ttl(rhs.f_ttl)
     , f_last_updated_on(rhs.f_last_updated_on)
-    , f_access_count(rhs.f_access_count)
+    , f_update_count(rhs.f_update_count)
+    , f_touch_count(rhs.f_touch_count)
     , f_last_touched_on(rhs.f_last_touched_on)
     , f_timeout(rhs.f_timeout)
     , f_turn(rhs.f_turn)
@@ -309,10 +311,12 @@ cache_impl::item_t::~item_t()
 //        f_created_on = rhs.f_created_on;
 //
 //        f_allocated = rhs.f_allocated;
+//        f_cost = rhs.f_cost;
 //        f_ttl = rhs.f_ttl;
 //        f_last_updated_on = rhs.f_last_updated_on;
 //
-//        f_access_count = rhs.f_access_count;
+//        f_update_count = rhs.f_update_count;
+//        f_touch_count = rhs.f_touch_count;
 //        f_last_touched_on = rhs.f_last_touched_on;
 //        f_timeout = rhs.f_timeout;
 //        f_turn = rhs.f_turn;
@@ -605,7 +609,8 @@ set_result_t cache_impl::set(
       hash_t h
     , void const * value
     , std::size_t value_size
-    , duration_t ttl)
+    , duration_t ttl
+    , float cost)
 {
     biased_time_t const now(biased_now());
 
@@ -649,6 +654,7 @@ set_result_t cache_impl::set(
     item.f_allocated = allocated_bytes;
     item.f_created_on = now;
     item.f_last_updated_on = now;
+    item.f_cost = cost;
     item.f_ttl = ttl;
     if(ttl > 0)
     {
@@ -743,12 +749,18 @@ set_result_t cache_impl::set(
 
         it->second.set_value(value, value_size);
         it->second.f_allocated = item.f_allocated;
+        it->second.f_cost = item.f_cost;
         it->second.f_ttl = item.f_ttl;
 
-        it->second.f_access_count = snapdev::saturated_add(it->second.f_access_count, 1U);
-        if(it->second.f_access_count > f_maximum_access_count)
+        std::size_t const max_update_count(f_opts.get_maximum_update_count());
+        if(max_update_count == NO_LIMIT
+        || it->second.f_update_count < max_update_count)
         {
-            f_maximum_access_count = it->second.f_access_count;
+            it->second.f_update_count = snapdev::saturated_add<decltype(it->second.f_update_count)>(it->second.f_update_count, 1);
+            if(it->second.f_update_count > f_maximum_update_count)
+            {
+                f_maximum_update_count = it->second.f_update_count;
+            }
         }
         if(it->second.f_allocated > f_maximum_allocated)
         {
@@ -839,14 +851,14 @@ std::cerr << "--- auto-purge in get()?!" << std::endl;
     it->second.f_last_touched_on = now;
     f_last_item_touched_on = now;
 
-    std::size_t const max_access_count(f_opts.get_maximum_access_count());
-    if(max_access_count == NO_LIMIT
-    || it->second.f_access_count < max_access_count)
+    std::size_t const max_touch_count(f_opts.get_maximum_touch_count());
+    if(max_touch_count == NO_LIMIT
+    || it->second.f_touch_count < max_touch_count)
     {
-        ++it->second.f_access_count;
-        if(it->second.f_access_count > f_maximum_access_count)
+        it->second.f_touch_count = snapdev::saturated_add<decltype(it->second.f_touch_count)>(it->second.f_touch_count, 1U);
+        if(it->second.f_touch_count > f_maximum_touch_count)
         {
-            f_maximum_access_count = it->second.f_access_count;
+            f_maximum_touch_count = it->second.f_touch_count;
         }
     }
 
@@ -873,11 +885,13 @@ metadata_t cache_impl::get_metadata(hash_t h)
 
     result.f_size = it->second.f_size;
     result.f_allocated = it->second.f_allocated;
-    result.f_access_count = it->second.f_access_count;
+    result.f_update_count = it->second.f_update_count;
+    result.f_touch_count = it->second.f_touch_count;
     result.f_created_on = unbias_biased_time(it->second.f_created_on);
     result.f_last_updated_on = unbias_biased_time(it->second.f_last_updated_on);
     result.f_last_touched_on = unbias_biased_time(it->second.f_last_touched_on);
     result.f_timeout = unbias_biased_time(it->second.f_timeout);
+    result.f_cost = it->second.f_cost;
     result.f_ttl = it->second.f_ttl;
 
     // compute the time when the data is considered stale
@@ -1062,9 +1076,21 @@ bool cache_impl::evict_stats()
 
     if(f_evict_stats_index == 0)
     {
+        if(ep->cycle().get_cycle_started_on() > 0.0)
+        {
+            f_evict_stat_last_decayed_on = ep->cycle().get_cycle_started_on();
+        }
+
         ep->cycle().new_cycle(f_first_item_created_on, f_last_item_touched_on);
 
         f_evict_stats_offset = snapdev::random(0UL, f_buckets.size() - 1UL);
+
+        // the following allows us to manage special cases everywhere else
+        //
+        if(f_evict_stat_last_decayed_on == biased_time_t())
+        {
+            f_evict_stat_last_decayed_on = ep->cycle().get_cycle_started_on();
+        }
     }
 
     // the EVICT_SWEEP_STRIDE and f_evict_stats_offset gives us a seemingly
@@ -1086,9 +1112,13 @@ bool cache_impl::evict_stats()
             skip_empty = bucket.f_entries.empty();
             for(auto & e : bucket.f_entries)
             {
-                if(e.second.f_access_count > ep->cycle().get_item_maximum_access_count())
+                if(e.second.f_update_count > ep->cycle().get_item_maximum_update_count())
                 {
-                    ep->cycle().set_item_maximum_access_count(e.second.f_access_count);
+                    ep->cycle().set_item_maximum_update_count(e.second.f_update_count);
+                }
+                if(e.second.f_touch_count > ep->cycle().get_item_maximum_touch_count())
+                {
+                    ep->cycle().set_item_maximum_touch_count(e.second.f_touch_count);
                 }
                 if(e.second.f_allocated > ep->cycle().get_item_maximum_allocated())
                 {
@@ -1180,7 +1210,7 @@ bool cache_impl::evict_weights()
 std::cerr << "--- evict_stats() count set to = "
 << f_evict_smallest_weights_count
 //<< " -- max access: " << f_evict_stat_max_accesses_for_weight
-//<< " -- latest access: " << f_evict_stat_latest_access_age_for_weight
+//<< " -- latest access: " << f_evict_stat_latest_touch_age_for_weight
 << std::endl;
     }
 
@@ -1209,7 +1239,8 @@ std::cerr << "--- evict_stats() count set to = "
 
                 // setup this item data in the eviction policy object
                 //
-                ep->item().set_access_count(e.second.f_access_count);
+                ep->item().set_update_count(e.second.f_update_count);
+                ep->item().set_touch_count(e.second.f_touch_count);
                 ep->item().set_created_on(e.second.f_created_on);
                 ep->item().set_last_updated_on(e.second.f_last_updated_on);
                 ep->item().set_last_touched_on(e.second.f_last_touched_on);
@@ -1221,21 +1252,36 @@ std::cerr << "--- evict_stats() count set to = "
                 //
                 double const weight(ep->compute_weight());
 
-                // this needs a better timer because when full, the cache
-                // triggers an eviction which means this could happen very
-                // often, more often than expected making the account count
-                // reach zero quickly
+                // decay counters if user requested so
                 //
-                std::uint64_t const decay(f_opts.get_access_count_decay());
-                if(decay != NO_DECAY)
+                double decay(f_opts.get_update_decay());
+                if(decay > 0.0)
                 {
-                    if(e.second.f_access_count > decay)
+                    decay += f_evict_stat_update_decay_frac;
+                    f_evict_stat_update_decay_frac = std::modf(decay, &decay);
+                    std::uint64_t const update_decay(decay);
+                    if(e.second.f_update_count > update_decay)
                     {
-                        e.second.f_access_count -= decay;
+                        e.second.f_update_count -= update_decay;
                     }
                     else
                     {
-                        e.second.f_access_count = 0;
+                        e.second.f_update_count = 0;
+                    }
+                }
+                decay = f_opts.get_touch_decay();
+                if(decay > 0.0)
+                {
+                    decay += f_evict_stat_touch_decay_frac;
+                    f_evict_stat_touch_decay_frac = std::modf(decay, &decay);
+                    std::uint64_t const access_decay(decay);
+                    if(e.second.f_touch_count > access_decay)
+                    {
+                        e.second.f_touch_count -= access_decay;
+                    }
+                    else
+                    {
+                        e.second.f_touch_count = 0;
                     }
                 }
 

@@ -98,27 +98,75 @@ std::size_t options::get_capacity_limit() const
 }
 
 
-void options::set_maximum_access_count(std::size_t maximum_count)
+void options::set_maximum_update_count(std::size_t maximum_count)
 {
-    f_maximum_access_count = maximum_count;
+    f_maximum_update_count = maximum_count;
 }
 
 
-std::size_t options::get_maximum_access_count() const
+std::size_t options::get_maximum_update_count() const
 {
-    return f_maximum_access_count;
+    return f_maximum_update_count;
 }
 
 
-void options::set_access_count_decay(std::size_t decay)
+void options::set_maximum_touch_count(std::size_t maximum_count)
 {
-    f_access_count_decay = decay;
+    f_maximum_touch_count = maximum_count;
 }
 
 
-std::size_t options::get_access_count_decay() const
+std::size_t options::get_maximum_touch_count() const
 {
-    return f_access_count_decay;
+    return f_maximum_touch_count;
+}
+
+
+void options::set_update_decay(std::uint32_t amount, std::uint32_t period)
+{
+    f_update_decay = static_cast<double>(amount) / static_cast<double>(period);
+}
+
+
+void options::set_update_decay(double amount_per_second)
+{
+    f_update_decay = amount_per_second;
+}
+
+
+double options::get_update_decay() const
+{
+    return f_update_decay;
+}
+
+
+void options::set_touch_decay(std::uint32_t amount, std::uint32_t period)
+{
+    f_touch_decay = static_cast<double>(amount) / static_cast<double>(period);
+}
+
+
+void options::set_touch_decay(double amount_per_second)
+{
+    f_touch_decay = amount_per_second;
+}
+
+
+double options::get_touch_decay() const
+{
+    return f_touch_decay;
+}
+
+
+void options::set_cost_lowpass_filter_coefficient(float coefficient)
+{
+    f_cost_lowpass_filter_coefficient = coefficient;
+}
+
+
+float options::get_cost_lowpass_filter_coefficient() const
+{
+    return f_cost_lowpass_filter_coefficient;
 }
 
 

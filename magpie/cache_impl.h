@@ -74,6 +74,12 @@ struct metadata_t
         return f_created_on != time_t();
     }
 
+    std::uint32_t access_count() const
+    {
+        return static_cast<std::uint32_t>(f_update_count)
+             + static_cast<std::uint32_t>(f_touch_count);
+    }
+
     time_t last_accessed_on() const
     {
         return std::max(f_last_updated_on, f_last_touched_on);
@@ -81,13 +87,15 @@ struct metadata_t
 
     std::size_t             f_size = 0;
     std::size_t             f_allocated = 0;
-    std::uint32_t           f_access_count = 0;
+    std::uint16_t           f_update_count = 0;
+    std::uint16_t           f_touch_count = 0;
     time_t                  f_created_on = time_t();
     time_t                  f_last_updated_on = time_t();
     time_t                  f_last_touched_on = time_t();
     time_t                  f_stale_at = time_t();
     time_t                  f_timeout = time_t();
     duration_t              f_ttl = NO_TTL;
+    float                   f_cost = NO_COST;
 };
 
 
@@ -133,8 +141,6 @@ private:
 
         item_t const &          operator = (item_t const & rhs) = delete; // there is a commented out version of this -- at the moment it's not used so not tested, removing until really needed.
 
-        void                    decay_access_count(std::uint64_t const dec);
-
         // set once on creation -- first set()
         //
         cache_interface *       f_parent = nullptr;                         // to call the copy operator
@@ -145,14 +151,16 @@ private:
         //
         void *                  f_value = nullptr;                          // a copy of the user's object
         std::size_t             f_allocated = 0;                            // amount of memory used by this object
-        duration_t              f_ttl = duration_t();                       // ttl to update f_timeout when update_ttl is true
+        float                   f_cost = NO_COST;                           // cost of evicting this item
+        duration_t              f_ttl = duration_t();                       // ttl to update f_timeout
         biased_time_t           f_last_updated_on = biased_time_t();        // last time this very object was updated (last set)
+        std::uint16_t           f_update_count = 1;                         // number of time the item was updated (set)
 
-        // updated on a set() and get()
+        // updated on a set() and/or get()
         //
-        std::uint32_t           f_access_count = 1;                         // number of time the item was accessed
+        std::uint16_t           f_touch_count = 0;                          // number of time the item was touched (get)
         biased_time_t           f_last_touched_on = biased_time_t();        // last time this very object was read (last get only)
-        biased_time_t           f_timeout = biased_time_t();                // (f_created_on | f_last_access) + f_ttl -- when value becomes stale
+        biased_time_t           f_timeout = biased_time_t();                // when value becomes stale
 
         // updated by the eviction algorithm
         //
@@ -186,7 +194,8 @@ public:
                                   hash_t h
                                 , void const * value
                                 , std::size_t value_size
-                                , duration_t ttl);
+                                , duration_t ttl
+                                , float cost);
 
     bool                    get(
                                   hash_t h
@@ -260,8 +269,9 @@ private:
     bucket_t::vector_t      f_buckets = bucket_t::vector_t();
     std::size_t             f_current_capacity_usage = 0;
     std::size_t             f_current_count_usage = 0;
-    std::uint64_t           f_maximum_access_count = 1;
-    std::uint64_t           f_maximum_allocated = 1;
+    std::uint64_t           f_maximum_update_count = 0;
+    std::uint64_t           f_maximum_touch_count = 0;
+    std::uint64_t           f_maximum_allocated = 0;
     biased_time_t           f_first_item_created_on = biased_time_t();
     biased_time_t           f_last_item_updated_on = biased_time_t();
     biased_time_t           f_last_item_touched_on = biased_time_t();
@@ -269,16 +279,9 @@ private:
     std::size_t             f_purge_index = 0;
     std::size_t             f_evict_stats_index = 0;
     std::size_t             f_evict_stats_offset = 0;
-    //biased_time_t           f_evict_stat_started_on = biased_time_t();
-    //std::uint64_t           f_evict_stat_item_max_access_count = 0;
-    //std::size_t             f_evict_stat_item_max_allocated = 0;
-    //snapdev::timespec_ex    f_evict_stat_item_oldest = snapdev::timespec_ex();   // smallest f_created_on
-    //snapdev::timespec_ex    f_evict_stat_item_most_recent_update = snapdev::timespec_ex();
-    //snapdev::timespec_ex    f_evict_stat_item_most_recent_touch = snapdev::timespec_ex();
-    //snapdev::timespec_ex    f_evict_stat_item_oldest_update = snapdev::timespec_ex::max();
-    //snapdev::timespec_ex    f_evict_stat_item_oldest_touch = snapdev::timespec_ex::max();
-    //snapdev::timespec_ex    f_evict_stat_item_furthest_timeout = snapdev::timespec_ex();
-    //std::uint64_t           f_evict_stat_item_highest_turn = 0;
+    biased_time_t           f_evict_stat_last_decayed_on = biased_time_t(); // to apply various decay to item counters
+    double                  f_evict_stat_update_decay_frac = 0.0;
+    double                  f_evict_stat_touch_decay_frac = 0.0;
     std::size_t             f_evict_weight_index = 0;
     std::size_t             f_evict_weight_offset = 0;
     std::size_t             f_evict_smallest_weights_count = 0;

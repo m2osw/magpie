@@ -304,6 +304,248 @@ CATCH_TEST_CASE("evict_least_frequent", "[thread]")
 }
 
 
+CATCH_TEST_CASE("evict_largest_first", "[thread]")
+{
+    CATCH_START_SECTION("evict_largest_first: create many items, watch that the largest are evicted first")
+    {
+        // we are not supposed to be running anything at this point
+        //
+        CATCH_REQUIRE(cppthread::thread::get_running_threads() == 0);
+
+        constexpr std::size_t const VALUES_COUNT = 2'000;
+        std::random_device          rd;
+        std::mt19937                g(rd());
+
+        for(std::size_t lock_model(0); lock_model < std::size(g_lock_models); ++lock_model)
+        {
+            magpie::options opts;
+            opts.set_lock_model(g_lock_models[lock_model].f_mode);
+            opts.set_default_ttl(86400);        // 1 day
+            opts.set_cleanup_interval(3);       // 3s
+            opts.set_count_limit(VALUES_COUNT);
+
+            magpie::eviction_policy_add::pointer_t ep(std::make_shared<magpie::eviction_policy_add>());
+            ep->profile().set_size_eviction_trigger_percent(0.95);
+            ep->profile().set_size_eviction_reduction_percent(0.9);
+            ep->profile().set_access_count_weight(0.0);
+            ep->profile().set_recency_weight(0.0);
+            ep->profile().set_allocated_weight(-1.0); // to remove the largest files, use a negative weight
+            ep->profile().set_age_weight(0.0);
+            ep->profile().set_survival_weight(0.0);
+            ep->profile().set_random_weight(0.0);
+            opts.set_eviction_policy(ep);
+
+            // construct
+            //
+            typedef std::vector<std::uint8_t> buffer_t;
+            magpie::cache<int, buffer_t>::pointer_t cache(std::make_shared<magpie::cache<int, buffer_t>>(opts));
+
+            // having the least recently used flag on means a cleanup thread
+            // gets started by the constructor
+            //
+            CATCH_REQUIRE(cppthread::thread::get_running_threads() == 1);
+
+            // create the buffers
+            //
+            std::vector<buffer_t> buffers(VALUES_COUNT);
+            std::vector<std::size_t> sizes(VALUES_COUNT);
+            for(std::size_t i(0); i < VALUES_COUNT; ++i)
+            {
+                std::size_t const size(snapdev::random(1, 2'000)); // x VALUES_COUNT, a max. of about 4Mb
+                sizes[i] = size;
+                buffers[i].resize(size);
+                for(std::size_t j(0); j < size; ++j)
+                {
+                    buffers[i][j] = snapdev::random(0, 255);
+                }
+            }
+            std::sort(sizes.begin(), sizes.end());
+
+            std::size_t const reduced_size(static_cast<std::size_t>(VALUES_COUNT * 0.9));
+            CATCH_REQUIRE(reduced_size < sizes.size());
+            std::size_t const size_limit(sizes[reduced_size]);
+            std::vector<bool> kept(VALUES_COUNT);
+            for(std::size_t i(0); i < VALUES_COUNT; ++i)
+            {
+                if(buffers[i].size() < size_limit)
+                {
+                    kept[i] = true;
+                }
+            }
+
+            // fill the cache
+            //
+            for(std::size_t k(0); k < VALUES_COUNT; ++k)
+            {
+                cache->set(k, buffers[k]);
+            }
+
+            // now the eviction is going to kick in within about 3 seconds
+            // and remove the 200 largest entries; the kept array tells us
+            // which buffers are expected to not go away
+            //
+            std::size_t missing(0);
+            do
+            {
+                missing = 0;
+                for(std::size_t k(0); k < VALUES_COUNT; ++k)
+                {
+                    std::optional<buffer_t> v(cache->get(k, true)); // the TTL update should have no side effects
+                    if(kept[k])
+                    {
+                        CATCH_REQUIRE(v.has_value());
+                        CATCH_REQUIRE(v.value() == buffers[k]);
+                    }
+                    else if(v.has_value())
+                    {
+                        // not yet removed
+                        //
+                        CATCH_REQUIRE(v.value() == buffers[k]);
+                    }
+                    else
+                    {
+                        ++missing;
+                    }
+                }
+
+                cache->verify_current_count();
+                cache->verify_current_capacity();
+                sleep(1);
+            }
+            while(missing < VALUES_COUNT - reduced_size);
+
+            // done, everything gets destroyed
+            //
+            cache.reset();
+
+            CATCH_REQUIRE(cppthread::thread::get_running_threads() == 0);
+        }
+    }
+    CATCH_END_SECTION()
+}
+
+
+CATCH_TEST_CASE("evict_smallest_first", "[thread]")
+{
+    CATCH_START_SECTION("evict_smallest_first: create many items, watch that the smallest are evicted first")
+    {
+        // we are not supposed to be running anything at this point
+        //
+        CATCH_REQUIRE(cppthread::thread::get_running_threads() == 0);
+
+        constexpr std::size_t const VALUES_COUNT = 2'000;
+        std::random_device          rd;
+        std::mt19937                g(rd());
+
+        for(std::size_t lock_model(0); lock_model < std::size(g_lock_models); ++lock_model)
+        {
+            magpie::options opts;
+            opts.set_lock_model(g_lock_models[lock_model].f_mode);
+            opts.set_default_ttl(86400);        // 1 day
+            opts.set_cleanup_interval(3);       // 3s
+            opts.set_count_limit(VALUES_COUNT);
+
+            magpie::eviction_policy_add::pointer_t ep(std::make_shared<magpie::eviction_policy_add>());
+            ep->profile().set_size_eviction_trigger_percent(0.95);
+            ep->profile().set_size_eviction_reduction_percent(0.9);
+            ep->profile().set_access_count_weight(0.0);
+            ep->profile().set_recency_weight(0.0);
+            ep->profile().set_allocated_weight(1.0); // a positive weight means: remove the smallest files
+            ep->profile().set_age_weight(0.0);
+            ep->profile().set_survival_weight(0.0);
+            ep->profile().set_random_weight(0.0);
+            opts.set_eviction_policy(ep);
+
+            // construct
+            //
+            typedef std::vector<std::uint8_t> buffer_t;
+            magpie::cache<int, buffer_t>::pointer_t cache(std::make_shared<magpie::cache<int, buffer_t>>(opts));
+
+            // having the least recently used flag on means a cleanup thread
+            // gets started by the constructor
+            //
+            CATCH_REQUIRE(cppthread::thread::get_running_threads() == 1);
+
+            // create the buffers
+            //
+            std::vector<buffer_t> buffers(VALUES_COUNT);
+            std::vector<std::size_t> sizes(VALUES_COUNT);
+            for(std::size_t i(0); i < VALUES_COUNT; ++i)
+            {
+                std::size_t const size(snapdev::random(1, 2'000)); // x VALUES_COUNT, a max. of about 4Mb
+                sizes[i] = size;
+                buffers[i].resize(size);
+                for(std::size_t j(0); j < size; ++j)
+                {
+                    buffers[i][j] = snapdev::random(0, 255);
+                }
+            }
+            std::sort(sizes.begin(), sizes.end());
+
+            std::size_t const reduced_size(VALUES_COUNT - static_cast<std::size_t>(VALUES_COUNT * 0.9));
+            CATCH_REQUIRE(reduced_size < sizes.size());
+            std::size_t const size_limit(sizes[reduced_size]);
+            std::vector<bool> kept(VALUES_COUNT);
+            for(std::size_t i(0); i < VALUES_COUNT; ++i)
+            {
+                if(buffers[i].size() > size_limit)
+                {
+                    kept[i] = true;
+                }
+            }
+
+            // fill the cache
+            //
+            for(std::size_t k(0); k < VALUES_COUNT; ++k)
+            {
+                cache->set(k, buffers[k]);
+            }
+
+            // now the eviction is going to kick in within about 3 seconds
+            // and remove the 200 largest entries; the kept array tells us
+            // which buffers are expected to not go away
+            //
+            std::size_t missing(0);
+            do
+            {
+                missing = 0;
+                for(std::size_t k(0); k < VALUES_COUNT; ++k)
+                {
+                    std::optional<buffer_t> v(cache->get(k, true)); // the TTL update should have no side effects
+                    if(kept[k])
+                    {
+                        CATCH_REQUIRE(v.has_value());
+                        CATCH_REQUIRE(v.value() == buffers[k]);
+                    }
+                    else if(v.has_value())
+                    {
+                        // not yet removed
+                        //
+                        CATCH_REQUIRE(v.value() == buffers[k]);
+                    }
+                    else
+                    {
+                        ++missing;
+                    }
+                }
+
+                cache->verify_current_count();
+                cache->verify_current_capacity();
+                sleep(1);
+            }
+            while(missing < reduced_size);
+
+            // done, everything gets destroyed
+            //
+            cache.reset();
+
+            CATCH_REQUIRE(cppthread::thread::get_running_threads() == 0);
+        }
+    }
+    CATCH_END_SECTION()
+}
+
+
 
 
 

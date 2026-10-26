@@ -107,7 +107,7 @@ public:
         }
     }
 
-    set_result_t set(K const & k, T const & t, duration_t ttl = DEFAULT_TTL)
+    set_result_t set(K const & k, T const & t, duration_t ttl = DEFAULT_TTL, float cost = NO_COST)
     {
         if(!f_allow_empty_key
         && key_size(k) == 0)
@@ -115,7 +115,7 @@ public:
             throw empty_key_not_accepted("this cache was setup to not accept the empty key.");
         }
 
-        return f_impl->set(hash_key(k), &t, sizeof_T(), ttl);
+        return f_impl->set(hash_key(k), &t, sizeof_T(), ttl, cost);
     }
 
     bool erase(K const & k)

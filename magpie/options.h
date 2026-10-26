@@ -54,14 +54,13 @@ constexpr duration_t const      NO_MAXIMUM_LIFETIME = 0;
 constexpr duration_t const      DEFAULT_CLEANUP_INTERVAL = 3600; // 1h
 
 constexpr std::size_t const     NO_LIMIT = 0;
-constexpr std::size_t const     NO_DECAY = 0;
+constexpr double const          NO_DECAY = 0.0;
 constexpr std::size_t const     DEFAULT_BUCKET_COUNT = 10;
 constexpr std::size_t const     MAX_BUCKET_COUNT = 10'000;
 constexpr std::int64_t const    EVICT_SWEEP_STRIDE = 10'007;
 
 constexpr std::int64_t const    KEY_SEED1 = 0x952A7219F1248BC5;
 constexpr std::int64_t const    KEY_SEED2 = 0xA81F572192741BE4;
-
 
 enum class lock_model_t
 {
@@ -98,11 +97,22 @@ public:
     void                    set_capacity_limit(std::size_t maximum_allocated);
     std::size_t             get_capacity_limit() const;
 
-    void                    set_maximum_access_count(std::size_t maximum_count);
-    std::size_t             get_maximum_access_count() const;
+    void                    set_maximum_update_count(std::size_t maximum_count);
+    std::size_t             get_maximum_update_count() const;
 
-    void                    set_access_count_decay(std::size_t decay);
-    std::size_t             get_access_count_decay() const;
+    void                    set_maximum_touch_count(std::size_t maximum_count);
+    std::size_t             get_maximum_touch_count() const;
+
+    void                    set_update_decay(std::uint32_t amount, std::uint32_t period);
+    void                    set_update_decay(double amount_per_second);
+    double                  get_update_decay() const;
+
+    void                    set_touch_decay(std::uint32_t amount, std::uint32_t period);
+    void                    set_touch_decay(double amount_per_second);
+    double                  get_touch_decay() const;
+
+    void                    set_cost_lowpass_filter_coefficient(float coefficient);
+    float                   get_cost_lowpass_filter_coefficient() const;
 
     void                    set_count_limit(std::size_t count_limit);
     std::size_t             get_count_limit() const;
@@ -136,8 +146,11 @@ private:
     bool                    f_refuse_data_once_full = true;
     std::size_t             f_maximum_object_size = NO_LIMIT;
     std::size_t             f_maximum_allocated = NO_LIMIT;
-    std::size_t             f_maximum_access_count = NO_LIMIT;
-    std::size_t             f_access_count_decay = NO_DECAY;
+    std::size_t             f_maximum_update_count = NO_LIMIT;
+    std::size_t             f_maximum_touch_count = NO_LIMIT;
+    double                  f_update_decay = NO_DECAY;
+    double                  f_touch_decay = NO_DECAY;
+    float                   f_cost_lowpass_filter_coefficient = 1.0;
     std::size_t             f_count_limit = NO_LIMIT;
     std::size_t             f_bucket_count = DEFAULT_BUCKET_COUNT;
     duration_t              f_default_ttl = NO_TTL;

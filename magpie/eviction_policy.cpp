@@ -236,7 +236,8 @@ void eviction_cycle::new_cycle(
     f_started_on = biased_now();
     ++f_turn;
 
-    f_item_maximum_access_count = 1.0;
+    f_item_maximum_update_count = 0.0;
+    f_item_maximum_touch_count = 0.0;
     f_item_maximum_allocated = 1.0;
     f_item_oldest_created_on = std::numeric_limits<biased_time_t>::max();
     f_item_most_recent_update = first_item_created_on;
@@ -466,17 +467,80 @@ double eviction_policy::normalized_accesses(double default_value) const
 
 double eviction_policy::normalized_linear_accesses(double default_value) const
 {
-    if(snapdev::quiet_floating_point_equal(cycle().get_item_maximum_access_count(), 0.0))
+    double accesses(cycle().get_item_maximum_update_count()
+                  + cycle().get_item_maximum_touch_count());
+    if(snapdev::quiet_floating_point_equal(accesses, 0.0))
     {
         return default_value;
     }
-    return f_item.get_access_count() / cycle().get_item_maximum_access_count();
+    return (f_item.get_update_count() + f_item.get_touch_count()) / accesses;
 }
 
 
 double eviction_policy::normalized_log_saturate_accesses() const
 {
-    return log(f_item.get_access_count() + 1.0) / log(cycle().get_item_maximum_access_count() + 1.0);
+    return log(f_item.get_update_count() + f_item.get_touch_count() + 1.0)
+         / log(cycle().get_item_maximum_update_count()
+             + cycle().get_item_maximum_touch_count()
+             + 1.0);
+}
+
+
+double eviction_policy::normalized_updates(double default_value) const
+{
+    if((f_profile.get_linear_normalization() & LINEAR_UPDATES) != 0)
+    {
+        return normalized_linear_updates(default_value);
+    }
+    else
+    {
+        return normalized_log_saturate_updates();
+    }
+}
+
+
+double eviction_policy::normalized_linear_updates(double default_value) const
+{
+    if(snapdev::quiet_floating_point_equal(cycle().get_item_maximum_update_count(), 0.0))
+    {
+        return default_value;
+    }
+    return f_item.get_update_count() / cycle().get_item_maximum_update_count();
+}
+
+
+double eviction_policy::normalized_log_saturate_updates() const
+{
+    return log(f_item.get_update_count() + 1.0) / log(cycle().get_item_maximum_update_count() + 1.0);
+}
+
+
+double eviction_policy::normalized_touches(double default_value) const
+{
+    if((f_profile.get_linear_normalization() & LINEAR_TOUCHES) != 0)
+    {
+        return normalized_linear_touches(default_value);
+    }
+    else
+    {
+        return normalized_log_saturate_touches();
+    }
+}
+
+
+double eviction_policy::normalized_linear_touches(double default_value) const
+{
+    if(snapdev::quiet_floating_point_equal(cycle().get_item_maximum_touch_count(), 0.0))
+    {
+        return default_value;
+    }
+    return f_item.get_touch_count() / cycle().get_item_maximum_touch_count();
+}
+
+
+double eviction_policy::normalized_log_saturate_touches() const
+{
+    return log(f_item.get_touch_count() + 1.0) / log(cycle().get_item_maximum_touch_count() + 1.0);
 }
 
 
@@ -604,7 +668,10 @@ double eviction_policy::normalized_allocated(double default_value) const
  * memory, you should use the linear algorithm against that parameter.
  *
  * This is useful if gathering the data from a cheap location such as
- * local storage (SSD or HHD) when memory is a high cost.
+ * local storage (SSD or HHD) and when memory is a high cost.
+ *
+ * If you want to use it to keep large values instead, use a negative
+ * weight (i.e. -1.0).
  *
  * \return The normalized linear value of the allocated byte size.
  */
@@ -733,6 +800,16 @@ double eviction_policy_add::compute_weight() const
 std::cout << "access count: " << profile().get_access_count_weight() << " * " << normalized_accesses() << std::endl;
         weight += profile().get_access_count_weight() * normalized_accesses();
     }
+    if(snapdev::quiet_floating_point_not_equal(profile().get_update_count_weight(), 0.0))
+    {
+std::cout << "update count: " << profile().get_update_count_weight() << " * " << normalized_updates() << std::endl;
+        weight += profile().get_update_count_weight() * normalized_updates();
+    }
+    if(snapdev::quiet_floating_point_not_equal(profile().get_touch_count_weight(), 0.0))
+    {
+std::cout << "touch count: " << profile().get_touch_count_weight() << " * " << normalized_touches() << std::endl;
+        weight += profile().get_touch_count_weight() * normalized_touches();
+    }
     if(snapdev::quiet_floating_point_not_equal(profile().get_recency_weight(), 0.0))
     {
 std::cout << "recency: " << profile().get_recency_weight() << " * " << normalized_recency() << std::endl;
@@ -823,7 +900,7 @@ double eviction_policy_cost_benefit_ratio::compute_weight() const
 
 double eviction_policy_slru::compute_weight() const
 {
-    if(item().get_access_count() <= f_minimum_access_count)
+    if(item().get_touch_count() <= f_minimum_touch_count)
     {
         // return the oldest first if not old enough
         //
@@ -837,6 +914,20 @@ double eviction_policy_slru::compute_weight() const
         //
         return normalized_recency() + 2.0;
     }
+}
+
+
+double eviction_policy_gdsf::compute_weight() const
+{
+    double const frequency(normalized_accesses());
+    double const cost(item().get_cost());
+    double const log_size(log(item().get_allocated() + 2.0)); // avoid log(0) and log(1)
+    double const total_timespan(cycle().get_cycle_started_on() - cycle().get_item_oldest_access());
+    double const recency(total_timespan > 0.0
+                        ? (cycle().get_cycle_started_on() - item().get_last_accessed_on()) / total_timespan
+                        : 0.0);
+
+    return frequency * cost / log_size - profile().get_age_weight() * recency;
 }
 
 
