@@ -57,8 +57,8 @@ The harmonic mean uses the weights like so:
                recency_weight  +  frequency_weight
     result = ---------------------------------------
                recency_weight     frequency_weight
-	      ---------------- + ------------------
-	          recency           frequency
+              ---------------- + ------------------
+                  recency           frequency
 
 To take the byte size of the item in account, you can use it in the
 ADD formula like so:
@@ -79,68 +79,129 @@ In the geometric approach, you use the inverse instead:
     result = ---------------------------------------------------------
                                  size ** size_weight
 
+## Variables
+
 ### Timestamps
 
 The algorithms have access to many Unix timestamps (`time_t`).
 
-    ---+----+----+----+----+----+----+----+----+----+----+----... future ...
-       |    |    |    |    |    |    |    |    |    |    |
-       |    |    |    |    |    |    |    |    |    |    +---> [P] item purge time (item: f_timeout)
+    ---+----+----+----+----+----+----+----+----+----+----+--... future ...--+----+--...
+       |    |    |    |    |    |    |    |    |    |    |                  |    |
+       |    |    |    |    |    |    |    |    |    |    |                  |    +---> [M] furthest item timeout (cycle: f_item_furthest_timeout)
+       |    |    |    |    |    |    |    |    |    |    |                  |
+       |    |    |    |    |    |    |    |    |    |    +---> now          +---> [P] item purge time (item: f_timeout)
        |    |    |    |    |    |    |    |    |    |
-       |    |    |    |    |    |    |    |    |    +---> [E] eviction start time (cycle: f_cycle_started_on)
+       |    |    |    |    |    |    |    |    |    +---> [E] eviction start time (cycle: f_started_on)
        |    |    |    |    |    |    |    |    |
        |    |    |    |    |    |    |    |    +---> [R] last item touch (cycle: f_item_most_recent_touch)
        |    |    |    |    |    |    |    |
        |    |    |    |    |    |    |    +---> [U] last item update (cycle: f_item_most_recent_update)
        |    |    |    |    |    |    |
-       |    |    |    |    |    |    +---> [T] item last touched (f_item_last_touched_on)
+       |    |    |    |    |    |    +---> [T] item last touched (item: f_last_touched_on)
        |    |    |    |    |    |
-       |    |    |    |    |    +---> [L] item last updated (f_item_last_updated_on)
+       |    |    |    |    |    +---> [L] item last updated (item: f_last_updated_on)
        |    |    |    |    |
        |    |    |    |    +---> [Q] oldest touch (cycle: f_item_oldest_touch)
        |    |    |    |
-       |    |    |    +---> [O] oldest update (cycle: f_item_oldest_update) -- one specific item per cycle
+       |    |    |    +---> [O] oldest update (cycle: f_item_oldest_update)
        |    |    |
-       |    |    +---> [C] item created on (f_item_created_on)
+       |    |    +---> [C] item created on (item: f_created_on)
        |    |
-       |    +---> [F] first created item (f_oldest_item_created_on) -- one specific item per cycle
+       |    +---> [F] first created item (item: f_item_oldest_created_on)
        |
-       +---> [S] application start time (magpie_start_time()) -- application wide
+       +---> [S] application start time (magpie_start_time() -- application wide)
 
-    double                  f_cycle_started_on = 0.0;           // timestamp when weight computations started
-    double                  f_oldest_item_created_on = 0.0;     // timestamp of when the oldest item was created
-    double                  f_most_recent_item_update = 0.0;    // timestamp of the most recent item update
-    double                  f_most_recent_item_touch = 0.0;     // timestamp of the most recent item touch
-    double                  f_oldest_item_update = 0.0;         // timestamp of the item with the oldest f_last_updated_on
-    double                  f_oldest_item_touch = 0.0;          // timestamp of the item with the oldest f_last_touched_on
+Some variables can be expressed as follow:
 
-    double                  f_item_created_on = 0.0;            // timestamp when object was first inserted in cache
-    double                  f_item_last_updated_on = 0.0;            // timestamp of last set()
-    double                  f_item_last_touched_on = 0.0;            // timestamp of last get()
-    double                  f_item_timeout = 0.0;               // timestamp when the item is to timeout
+$$\begin{aligned}
+M = \max(P_1, P_2, ..., P_n)
+R = \max(T_1, T_2, ..., T_n)
+U = \max(L_1, L_2, ..., L_n)
+Q = \min(T_1, T_2, ..., T_n)
+O = \min(L_1, L_2, ..., L_n)
+\end{aligned}$$
+
 
 The order is what is most likely. In this drawing, the interval between
 each item is kept equal, but it is not the case in the real world. Not
 only that, since item specific timestamps can be updated **after** a
 new eviction starts, it can actually appear after that time
-(i.e. `f_cycle_started_on < f_most_recent_item_update` can be true).
+(i.e. `f_started_on < f_item_most_recent_update` can be true).
+
+### Other Variables (Counters, byte sizes, etc.)
+
+The eviction system also uses several counters and some other variables
+like so:
+
+    [A] item access count (item: f_access_count)
+    [B] item with the largets allocated memory (cycle: f_item_maximum_allocated)
+    [H] item with the highest turn (cycle: f_item_highest_turn)
+    [K] maximum access count (cycle: f_item_maximum_access_count)
+    [Y] item allocated memory (item: f_allocated)
+    [N] item eviction turn (item: f_turn)
+    [Z] number of cycles (cycle: f_turn)
+
+Some variables can be expressed as follow:
+
+$$\begin{aligned}
+B = \max{Y_{1}, Y_{2}, ..., Y_{n}}
+H = \max{N_{1}, N_{2}, ..., N_{n}}
+K = \max{A_{1}, A_{2}, ..., A_{n}}
+\end{aligned}$$
 
 ### Setup for LRU mode
 
 The ADD algorithm can be used to setup the eviction mode to LRU.
 
+We support the standard LRU which uses the date of the last access to
+an item in the cache, whether that object was added or updated (set),
+or whether it was retrieved (get).
+
+Since we keep the dates separate, you can also use the recency write
+(set) or the recency read (get) on their own or in an uneven mix.
+
     magpie::eviction_policy_add::pointer_t ep(std::make_shared<magpie::eviction_policy_add>());
     ep->profile().set_size_eviction_trigger_percent(0.95);
     ep->profile().set_size_eviction_reduction_percent(0.9);
-    ep->profile().set_recency_weight(1.0);
+    if(standard_lru) // max(get, set)
+    {
+        ep->profile().set_recency_weight(1.0);
+    }
+    else if(write_lru) // sets only
+    {
+        ep->profile().set_recency_write_weight(1.0);
+    }
+    else if(read_lru) // gets only
+    {
+        ep->profile().set_recency_read_weight(1.0);
+    }
+    else // privilege reads (get)
+    {
+        ep->profile().set_recency_write_weight(0.25);
+        ep->profile().set_recency_read_weight(0.75);
+    }
     opts.set_eviction_policy(ep);
 
-Equation:
+Equations:
 
-$$W_{recency}\frac{T - Q}{R - Q}$$
+$$W_{eviction} = W_{recency}\frac{\max(L, T) - \min(O, Q)}{\max(U, R) - \min(O, Q)}$$
+$$W_{eviction} = W_{recency write}\frac{L - O}{U - O}$$
+$$W_{eviction} = W_{recency read}\frac{T - Q}{R - Q}$$
 
-That that this equation uses the "touched" timestamp, which is the last get().
-It ignores the set().
+The default is to use the most recent of either "updated" or "touched".
+This is the standard LRU which does not make a distinction between
+a set and a get (i.e. last access on a Unix file).
+
+The "write" recency takes the "last updated" and "oldest update" values
+only. It completely ignores the touch timestamps.
+
+Similarly, the "read" recency takes the "last touched" and "oldest touch"
+values only. It completely ignores the update timestamps.
+
+As shown in the example above, we can mix the write and the read by
+changing the weight of each one. That is similar (but not 100% equivalent)
+to using the default LRU (with the `set_recency_weight()` function) but
+with the ability to give the write or the read a higher priority.
 
 
 ### Setup for LFU mode
@@ -152,6 +213,10 @@ The ADD algorithm can be used to setup the eviction mode to LRU.
     ep->profile().set_size_eviction_reduction_percent(0.9);
     ep->profile().set_access_count_weight(1.0);
     opts.set_eviction_policy(ep);
+
+Equation:
+
+$$W_{eviction} = \frac{item access count}{maximum access count}$$
 
 ### Setup for LRFU mode
 
@@ -176,8 +241,8 @@ advantage to the more frequently used items, you could use:
 
 **Note:** The sum of the weights do not need to be exactly 1.0. Each weight
           is conceptually normalized to a number from 0.0 to 1.0. However,
-	  since the eviction is processed on a live cache, it is possible
-	  that some of the numbers end up being more than 1.0 or negative.
+          since the eviction is processed on a live cache, it is possible
+          that some of the numbers end up being more than 1.0 or negative.
 
 ### Setup for FIFO mode
 
@@ -242,7 +307,7 @@ ADD algorithm:
 
 **NOTE:** All the FIFO-ed items will appear before the LRU items. So
           if a sufficient number of FIFO items is present, those are
-	  evicted and no old item is.
+          evicted and no old item is.
 
 #### Clock
 
@@ -270,3 +335,4 @@ times the eviction algorithm ran against that one item.
 This code sample sets up your cache as a standard MRU but also
 protects brand new items from being evicted too soon.
 
+# vim: ts=4 sw=4 et

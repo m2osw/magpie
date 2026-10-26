@@ -125,6 +125,26 @@ public:
         return f_recency_weight;
     }
 
+    void set_recency_write_weight(double weight)
+    {
+        f_recency_write_weight = weight;
+    }
+
+    double get_recency_write_weight() const
+    {
+        return f_recency_write_weight;
+    }
+
+    void set_recency_read_weight(double weight)
+    {
+        f_recency_read_weight = weight;
+    }
+
+    double get_recency_read_weight() const
+    {
+        return f_recency_read_weight;
+    }
+
     void set_recency_decay_half_time(double decay_half_time)
     {
         if(f_recency_decay_half_time <= 0.0)
@@ -233,6 +253,8 @@ private:
 
     double                  f_access_count_weight = 0.0;
     double                  f_recency_weight = 0.0;
+    double                  f_recency_write_weight = 0.0;
+    double                  f_recency_read_weight = 0.0;
     double                  f_recency_decay_half_time = 3600.0; // 1 hour
     double                  f_allocated_weight = 0.0;
     double                  f_age_weight = 0.0;
@@ -309,6 +331,11 @@ public:
         return f_item_most_recent_touch;
     }
 
+    double get_item_most_recent_access() const
+    {
+        return std::max(f_item_most_recent_update, f_item_most_recent_touch);
+    }
+
     void set_item_oldest_update(double oldest_update)
     {
         f_item_oldest_update = oldest_update;
@@ -327,6 +354,11 @@ public:
     double get_item_oldest_touch() const
     {
         return f_item_oldest_touch;
+    }
+
+    double get_item_oldest_access() const
+    {
+        return std::min(f_item_oldest_update, f_item_oldest_touch);
     }
 
     void set_item_furthest_timeout(double furthest_timeout)
@@ -404,6 +436,11 @@ public:
         return f_last_touched_on;
     }
 
+    double get_last_accessed_on() const
+    {
+        return std::max(f_last_updated_on, f_last_touched_on);
+    }
+
     void set_allocated(double allocated)
     {
         f_allocated = allocated;
@@ -478,6 +515,14 @@ public:
     double                      normalized_recency(double default_value = 0.0) const;
     double                      normalized_linear_recency(double default_value = 0.0) const;
     double                      normalized_exp_decay_recency() const;
+
+    double                      normalized_recency_write(double default_value = 0.0) const;
+    double                      normalized_linear_recency_write(double default_value = 0.0) const;
+    double                      normalized_exp_decay_recency_write() const;
+
+    double                      normalized_recency_read(double default_value = 0.0) const;
+    double                      normalized_linear_recency_read(double default_value = 0.0) const;
+    double                      normalized_exp_decay_recency_read() const;
 
     double                      normalized_allocated(double default_value = 0.0) const;
     double                      normalized_linear_allocated(double default_value = 0.0) const;

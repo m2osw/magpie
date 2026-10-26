@@ -495,16 +495,86 @@ double eviction_policy::normalized_recency(double default_value) const
 
 double eviction_policy::normalized_linear_recency(double default_value) const
 {
-    double const access_age(cycle().get_item_most_recent_touch() - cycle().get_item_oldest_touch());
+    double const access_age(f_cycle.get_item_most_recent_access() - f_cycle.get_item_oldest_access());
     if(snapdev::quiet_floating_point_equal(access_age, 0.0))
     {
         return default_value;
     }
-    return (f_item.get_last_touched_on() - cycle().get_item_oldest_touch()) / access_age;
+    return (f_item.get_last_accessed_on() - f_cycle.get_item_oldest_access()) / access_age;
 }
 
 
 double eviction_policy::normalized_exp_decay_recency() const
+{
+    double const delta_time(f_cycle.get_cycle_started_on() - f_item.get_last_accessed_on());
+    if(delta_time <= 0.0)
+    {
+        return 1.0;
+    }
+    return pow(M_E, -delta_time / f_profile.get_recency_decay_half_time());
+}
+
+
+double eviction_policy::normalized_recency_write(double default_value) const
+{
+    if((f_profile.get_linear_normalization() & LINEAR_RECENCY) != 0)
+    {
+        return normalized_linear_recency_write(default_value);
+    }
+    else
+    {
+        return normalized_exp_decay_recency_write();
+    }
+}
+
+
+double eviction_policy::normalized_linear_recency_write(double default_value) const
+{
+    double const access_age(f_cycle.get_item_most_recent_update() - f_cycle.get_item_oldest_update());
+    if(snapdev::quiet_floating_point_equal(access_age, 0.0))
+    {
+        return default_value;
+    }
+    return (f_item.get_last_updated_on() - f_cycle.get_item_oldest_update()) / access_age;
+}
+
+
+double eviction_policy::normalized_exp_decay_recency_write() const
+{
+    double const delta_time(cycle().get_cycle_started_on() - f_item.get_last_updated_on());
+    if(delta_time <= 0.0)
+    {
+        return 1.0;
+    }
+    return pow(M_E, -delta_time / f_profile.get_recency_decay_half_time());
+}
+
+
+double eviction_policy::normalized_recency_read(double default_value) const
+{
+    if((f_profile.get_linear_normalization() & LINEAR_RECENCY) != 0)
+    {
+        return normalized_linear_recency_read(default_value);
+    }
+    else
+    {
+        return normalized_exp_decay_recency_read();
+    }
+}
+
+
+double eviction_policy::normalized_linear_recency_read(double default_value) const
+{
+    double const access_age(f_cycle.get_item_most_recent_touch() - f_cycle.get_item_oldest_touch());
+    if(snapdev::quiet_floating_point_equal(access_age, 0.0))
+    {
+        return default_value;
+    }
+    return (f_item.get_last_touched_on() - f_cycle.get_item_oldest_touch()) / access_age;
+}
+
+
+double eviction_policy::normalized_exp_decay_recency_read() const
 {
     double const delta_time(cycle().get_cycle_started_on() - f_item.get_last_touched_on());
     if(delta_time <= 0.0)
