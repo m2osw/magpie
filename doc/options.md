@@ -272,6 +272,11 @@ get a FIFO eviction algorithm.
 This way, the date when the item was created is used one to one. So the
 oldest items get removed first. No other parameters are taken in account.
 
+**Note:** The FIFO mode makes use of the date when the item was created.
+          The precision is one second. If your cache is really fast
+          creating many items within one second, then this algorithm
+          may not be well adapted for your needs.
+
 Equation:
 
 $$W_{eviction} = W_{\text{age weight}}\frac{E-C}{E-F}$$

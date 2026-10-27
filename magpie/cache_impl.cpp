@@ -735,7 +735,6 @@ set_result_t cache_impl::set(
         && f_opts.get_capacity_limit() != 0)
         {
             std::size_t const additional(item.f_allocated - it->second.f_allocated);
-std::cerr << "--- allocated in ADD: item is " << item.f_allocated << " +existing item: " << it->second.f_allocated << " diff = " << additional << "\n";
             if(is_capacity_reached(true, additional))
             //if(f_current_capacity_usage + additional >= f_opts.get_capacity_limit())
             {
@@ -1150,7 +1149,7 @@ bool cache_impl::evict_stats()
                 {
                     ep->cycle().set_item_furthest_timeout(e.second.f_timeout);
                 }
-                if(e.second.f_turn < ep->cycle().get_item_highest_turn())
+                if(e.second.f_turn > ep->cycle().get_item_highest_turn())
                 {
                     ep->cycle().set_item_highest_turn(e.second.f_turn);
                 }

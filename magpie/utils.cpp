@@ -50,7 +50,17 @@ namespace
 
 
 
-time_t const                    g_start_time = time(nullptr);
+/** \brief Time at which the application started.
+ *
+ * This variable holds the time when your application loaded the
+ * magpie .so dynamic library.
+ *
+ * \note
+ * We do a `time(nullptr) - 1` because the special time 0 represents
+ * 0 in time_t and biased_time_t. So if you very quickly create an
+ * item in a cache, you could end up with an overload.
+ */
+time_t const                    g_start_time = time(nullptr) - 1;
 
 
 
@@ -85,6 +95,10 @@ biased_time_t biased_now()
 
 time_t unbias_biased_time(biased_time_t biased_time)
 {
+    if(biased_time == 0)
+    {
+        return time_t();
+    }
     return static_cast<time_t>(biased_time) + g_start_time;
 }
 

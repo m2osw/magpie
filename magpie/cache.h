@@ -155,7 +155,7 @@ public:
 
     [[nodiscard]] metadata_t get_metadata(K const & k) const
     {
-        return f_impl->get_metadata(k);
+        return f_impl->get_metadata(hash_key(k));
     }
 
     template<typename A>

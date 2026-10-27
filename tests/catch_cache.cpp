@@ -501,6 +501,18 @@ CATCH_TEST_CASE("cache", "[cache]")
             CATCH_REQUIRE(cache.size() == static_cast<std::size_t>(k));
         }
 
+        // first try to shrink a few things, that should always work
+        //
+        for(int i(1); i < k && i <= 15; ++i)
+        {
+            std::optional<std::string> v(cache.get(i));
+            CATCH_REQUIRE(v.has_value());
+            std::string s(v.value());
+            s.resize(s.size() / 2);
+            magpie::set_result_t status(cache.set(i, s));
+            CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_UPDATED);
+        }
+
         // append to strings
         //
         // IMPORTANT: even though it looks like we're adding very
@@ -532,6 +544,63 @@ CATCH_TEST_CASE("cache", "[cache]")
                 break;
             }
         }
+    }
+    CATCH_END_SECTION()
+
+    CATCH_START_SECTION("cache: check metadata")
+    {
+        magpie::options opts;
+        magpie::cache<int, std::string> cache(opts);
+
+        // before we add the key, there is no metadata
+        //
+        magpie::metadata_t info(cache.get_metadata(33));
+        CATCH_REQUIRE_FALSE(info.is_defined());
+
+        std::string const v1(SNAP_CATCH2_NAMESPACE::random_string(30, 200, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
+        magpie::set_result_t status(cache.set(33, v1));
+        CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_ADDED);
+
+        // now it's defined
+        //
+        info = cache.get_metadata(33);
+        CATCH_REQUIRE(info.is_defined());
+
+        CATCH_REQUIRE(info.f_size == sizeof(std::string));
+        CATCH_REQUIRE(snapdev::is_between(info.f_allocated, v1.size(), v1.size() + 100));
+        CATCH_REQUIRE(info.f_update_count == 1);
+        CATCH_REQUIRE(info.f_touch_count == 0);
+        CATCH_REQUIRE(snapdev::is_between(info.f_created_on, time(nullptr) - 5, time(nullptr) + 5));
+        CATCH_REQUIRE(snapdev::is_between(info.f_last_updated_on, time(nullptr) - 5, time(nullptr) + 5));
+        CATCH_REQUIRE(info.f_last_touched_on == time_t());
+        CATCH_REQUIRE(info.f_stale_at == time_t());
+        CATCH_REQUIRE(info.f_timeout == time_t());
+        CATCH_REQUIRE(info.f_ttl == magpie::NO_TTL);
+        CATCH_REQUIRE(snapdev::quiet_floating_point_equal(info.f_cost, magpie::NO_COST));
+
+        std::optional<std::string> s(cache.get(33));
+        CATCH_REQUIRE(s.has_value());
+        CATCH_REQUIRE(s.value() == v1);
+
+        info = cache.get_metadata(33);
+        CATCH_REQUIRE(info.is_defined());
+        CATCH_REQUIRE(info.f_update_count == 1);
+        CATCH_REQUIRE(info.f_touch_count == 1);
+        CATCH_REQUIRE(snapdev::is_between(info.f_last_touched_on, time(nullptr) - 5, time(nullptr) + 5));
+
+        std::string const v2(SNAP_CATCH2_NAMESPACE::random_string(30, 200, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
+        status = cache.set(33, v2, 60, 0.67f);
+        CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_UPDATED);
+
+        info = cache.get_metadata(33);
+        CATCH_REQUIRE(info.is_defined());
+        CATCH_REQUIRE(info.f_update_count == 2);
+        CATCH_REQUIRE(info.f_touch_count == 1);
+        CATCH_REQUIRE(snapdev::is_between(info.f_last_updated_on, time(nullptr) - 5, time(nullptr) + 5));
+        CATCH_REQUIRE(snapdev::is_between(info.f_stale_at, time(nullptr) + 55, time(nullptr) + 65));
+        CATCH_REQUIRE(snapdev::is_between(info.f_timeout, time(nullptr) + 55, time(nullptr) + 65));
+        CATCH_REQUIRE(info.f_ttl == 60);
+        CATCH_REQUIRE(snapdev::quiet_floating_point_equal(info.f_cost, 0.67f));
     }
     CATCH_END_SECTION()
 }
