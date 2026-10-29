@@ -58,7 +58,6 @@ cleanup_runner::tracker_t::tracker_t(
     : f_cache(cache)
     , f_next_cleanup(next_cleanup)
 {
-std::cerr << "--- cleanup runner was created...\n";
 }
 
 
@@ -70,7 +69,7 @@ void cleanup_runner::tracker_t::compute_next_cleanup()
         duration_t const interval(cache->get_cleanup_interval());
         duration_t const diff(snapdev::now() - f_next_cleanup);
         std::int64_t const intervals_to_add(diff / interval + 1);
-        f_next_cleanup += interval * intervals_to_add;
+        f_next_cleanup += snapdev::timespec_ex(interval * intervals_to_add, 0);
     }
 }
 
@@ -141,14 +140,14 @@ void cleanup_runner::manage_cache(cache_impl::pointer_t impl)
             }));
     if(it != f_caches.end())
     {
-        return;
+        return; // LCOV_EXCL_LINE
     }
 
     // insert new cache
     //
-    f_caches.emplace_back(std::make_shared<tracker_t>(impl, snapdev::now() + static_cast<std::int64_t>(impl->get_cleanup_interval())));
+    f_caches.emplace_back(std::make_shared<tracker_t>(impl, snapdev::now() + snapdev::timespec_ex(impl->get_cleanup_interval(), 0)));
 
-    wakeup();
+    wakeup(impl, false);
 }
 
 
@@ -177,8 +176,29 @@ void cleanup_runner::release_cache(cache_impl::pointer_t impl)
 }
 
 
-void cleanup_runner::wakeup()
+void cleanup_runner::wakeup(cache_impl::pointer_t impl, bool immediately)
 {
+    if(immediately)
+    {
+        cppthread::guard lock(f_mutex);
+
+        auto it(std::find_if(
+                  f_caches.begin()
+                , f_caches.end()
+                , [&impl](tracker_t::pointer_t t)
+                {
+                    return impl == t->f_cache.lock();
+                }));
+        if(it != f_caches.end())
+        {
+            // make sure that cache gets its eviction process going
+            // immediately (that's what the wakeup call is about)
+            //
+            //cache_impl::pointer_t cache(it->f_cache.lock());
+            (*it)->f_next_cleanup = snapdev::now() - snapdev::timespec_ex(1, 0);
+        }
+    }
+
     // send an empty request to wake-up the runner thread
     //
     // this is useful when adding or removing a cache
@@ -268,6 +288,7 @@ void cleanup_runner::cleanup_caches()
         {
             // cache does not need eviction yet
             //
+            ++f_caches_cleanup_it;
             return;
         }
 
@@ -285,6 +306,7 @@ void cleanup_runner::cleanup_caches()
         snapdev::SAFE_ASSERT(!(*f_caches_cleanup_it)->f_evict,                    "f_evict should be false when activating a cache eviction.");
 
         (*f_caches_cleanup_it)->f_purge_expired = true;
+        (*f_caches_cleanup_it)->f_decay_counters = true;
         (*f_caches_cleanup_it)->f_evict_stats = evict_stats_needed(**f_caches_cleanup_it);
         (*f_caches_cleanup_it)->f_evict_weights = false;
         (*f_caches_cleanup_it)->f_evict_organize_by_bucket = false;
@@ -297,73 +319,67 @@ void cleanup_runner::cleanup_caches()
 
     if((*f_caches_cleanup_it)->f_purge_expired)
     {
-std::cerr << "--- cleanup_caches() -> purge expired check\n";
         if(purge_expired(**f_caches_cleanup_it))
         {
-std::cerr << "--- cleanup_caches() -> purge expired done\n";
             (*f_caches_cleanup_it)->f_purge_expired = false;
         }
-else std::cerr << "--- cleanup_caches() -> purge expired returned\n";
+    }
+
+    if((*f_caches_cleanup_it)->f_decay_counters)
+    {
+        if(decay_counters(**f_caches_cleanup_it))
+        {
+            (*f_caches_cleanup_it)->f_decay_counters = false;
+        }
     }
 
     if((*f_caches_cleanup_it)->f_evict_stats)
     {
-std::cerr << "--- cleanup_caches() -> evict stats check\n";
         if(evict_stats(**f_caches_cleanup_it))
         {
-std::cerr << "--- cleanup_caches() -> evict stats done\n";
             (*f_caches_cleanup_it)->f_evict_stats = false;
             (*f_caches_cleanup_it)->f_evict_weights = true;
         }
-else std::cerr << "--- cleanup_caches() -> evict stats returned\n";
     }
 
     if((*f_caches_cleanup_it)->f_evict_weights)
     {
-std::cerr << "--- cleanup_caches() -> evict weights computations\n";
         if(evict_weights(**f_caches_cleanup_it))
         {
-std::cerr << "--- cleanup_caches() -> evict weights done\n";
             (*f_caches_cleanup_it)->f_evict_weights = false;
             (*f_caches_cleanup_it)->f_evict_organize_by_bucket = true;
         }
-else std::cerr << "--- cleanup_caches() -> evict weights returned\n";
     }
 
     if((*f_caches_cleanup_it)->f_evict_organize_by_bucket)
     {
-std::cerr << "--- cleanup_caches() -> evict organizing...\n";
         if(evict_organize_by_bucket(**f_caches_cleanup_it))
         {
-std::cerr << "--- cleanup_caches() -> evict organizing done...\n";
             (*f_caches_cleanup_it)->f_evict_organize_by_bucket = false;
             (*f_caches_cleanup_it)->f_evict = true;
         }
-else std::cerr << "--- cleanup_caches() -> evict organizing returned...\n";
     }
 
     if((*f_caches_cleanup_it)->f_evict)
     {
-std::cerr << "--- cleanup_caches() -> evict now!\n";
         if(evict(**f_caches_cleanup_it))
         {
-std::cerr << "--- cleanup_caches() -> evict now done\n";
             (*f_caches_cleanup_it)->f_evict = false;
         }
-else std::cerr << "--- cleanup_caches() -> evict now return\n";
     }
 
     if(!(*f_caches_cleanup_it)->f_purge_expired
+    && !(*f_caches_cleanup_it)->f_decay_counters
     && !(*f_caches_cleanup_it)->f_evict_stats
     && !(*f_caches_cleanup_it)->f_evict_weights
     && !(*f_caches_cleanup_it)->f_evict_organize_by_bucket
     && !(*f_caches_cleanup_it)->f_evict)
     {
-std::cerr << "--- cleanup_caches() -> loop done, reset state.\n";
         (*f_caches_cleanup_it)->f_active = false;
         (*f_caches_cleanup_it)->compute_next_cleanup();
+
+        ++f_caches_cleanup_it;
     }
-else std::cerr << "--- cleanup_caches() -> returning, state is still active...\n";
 }
 
 
@@ -372,10 +388,22 @@ bool cleanup_runner::purge_expired(tracker_t & t)
     cache_impl::pointer_t cache(t.f_cache.lock());
     if(cache == nullptr)
     {
-        return true;
+        return true; // LCOV_EXCL_LINE
     }
 
     return cache->purge_expired();
+}
+
+
+bool cleanup_runner::decay_counters(tracker_t & t)
+{
+    cache_impl::pointer_t cache(t.f_cache.lock());
+    if(cache == nullptr)
+    {
+        return true; // LCOV_EXCL_LINE
+    }
+
+    return cache->decay_counters();
 }
 
 
@@ -384,7 +412,7 @@ bool cleanup_runner::evict_stats_needed(tracker_t & t)
     cache_impl::pointer_t cache(t.f_cache.lock());
     if(cache == nullptr)
     {
-        return true;
+        return true; // LCOV_EXCL_LINE
     }
 
     return cache->is_limit_count_reached(false)
@@ -397,7 +425,7 @@ bool cleanup_runner::evict_stats(tracker_t & t)
     cache_impl::pointer_t cache(t.f_cache.lock());
     if(cache == nullptr)
     {
-        return true;
+        return true; // LCOV_EXCL_LINE
     }
 
     return cache->evict_stats();
@@ -409,7 +437,7 @@ bool cleanup_runner::evict_weights(tracker_t & t)
     cache_impl::pointer_t cache(t.f_cache.lock());
     if(cache == nullptr)
     {
-        return true;
+        return true; // LCOV_EXCL_LINE
     }
 
     return cache->evict_weights();
@@ -421,7 +449,7 @@ bool cleanup_runner::evict_organize_by_bucket(tracker_t &t)
     cache_impl::pointer_t cache(t.f_cache.lock());
     if(cache == nullptr)
     {
-        return true;
+        return true; // LCOV_EXCL_LINE
     }
 
     return cache->evict_organize_by_bucket();
@@ -433,7 +461,7 @@ bool cleanup_runner::evict(tracker_t & t)
     cache_impl::pointer_t cache(t.f_cache.lock());
     if(cache == nullptr)
     {
-        return true;
+        return true; // LCOV_EXCL_LINE
     }
 
     return cache->evict();

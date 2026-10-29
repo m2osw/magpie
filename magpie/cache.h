@@ -71,6 +71,7 @@ class cache
     : public cache_interface
 {
 public:
+    typedef std::optional<T>            optional_t;
     typedef std::shared_ptr<cache>      pointer_t;
 
     cache(options const & opts)
@@ -138,19 +139,24 @@ public:
         return f_impl->contains(hash_key(k));
     }
 
-    [[nodiscard]] std::optional<T> get(K const & k, bool update_ttl = false) const
+    [[nodiscard]] optional_t get(K const & k, bool update_ttl = false) const
     {
         return get_impl(hash_key(k), update_ttl);
     }
 
-    std::optional<T> operator [] (K const & k) const
+    [[nodiscard]] T operator [] (K const & k) const
     {
-        return get_impl(hash_key(k));
+        optional_t v(get_impl(hash_key(k)));
+        if(v.has_value())
+        {
+            return v.value();
+        }
+        return T(); // return a default/empty T otherwise
     }
 
-    cache_ref<K, T> operator [] (K const & k)
+    [[nodiscard]] cache_ref<K, T> operator [] (K const & k)
     {
-        return cache_ref<K, T>(this, hash_key(k));
+        return cache_ref<K, T>(this, k);
     }
 
     [[nodiscard]] metadata_t get_metadata(K const & k) const
@@ -160,7 +166,7 @@ public:
 
     template<typename A>
     requires requires(T t, A a) { { t + a } -> std::convertible_to<T>; }
-    T add(K const & k, T const & a)
+    T add(K const & k, A const & a, bool update_ttl = false)
     {
         detail::hash_t const h(hash_key(k));
         lock_interface::pointer_t lock(f_impl->get_lock(h));
@@ -171,24 +177,31 @@ public:
                 + lock->get_name()
                 + "\".");
         }
-        lock_guard guard(lock);
-        std::optional<T> v(get_impl(h, true, false));
+        lock_guard guard(lock, true);
+        std::optional<T> v(get_impl(h, update_ttl));
         if(v.has_value())
         {
             T result(v.value() + a);
-            set_result_t r(set(h, result));
+            set_result_t r(set(k, result));
             if(r != set_result_t::SET_RESULT_UPDATED)
             {
-                throw update_failed(
-                      "the add(), inc(), dec() failed to update the value properly ("
-                    + std::to_string(static_cast<int>(r))
-                    + ").");
+                throw update_failed(                                                    // LCOV_EXCL_LINE
+                      "the add(), inc(), dec() failed to update the value properly ("   // LCOV_EXCL_LINE
+                    + std::to_string(static_cast<int>(r))                               // LCOV_EXCL_LINE
+                    + ").");                                                            // LCOV_EXCL_LINE
             }
             return result;
         }
         else
         {
-            set(h, a);
+            set_result_t r(set(k, a));
+            if(r != set_result_t::SET_RESULT_ADDED)
+            {
+                throw set_failed(                                                   // LCOV_EXCL_LINE
+                      "the add(), inc(), dec() failed to save the value properly (" // LCOV_EXCL_LINE
+                    + std::to_string(static_cast<int>(r))                           // LCOV_EXCL_LINE
+                    + ").");                                                        // LCOV_EXCL_LINE
+            }
             return T(a);
         }
     }
@@ -210,7 +223,6 @@ public:
             throw logic_error("size of T and size of object to be copied do not match."); // LCOV_EXCL_LINE
         }
 
-//std::cerr << gettid() << ": --- COPY AN OBJECT " << reinterpret_cast<void const *>(this) << " :: " << in << " -> " << out << " ---" << std::endl;
         if(size > 0)
         {
             std::construct_at(reinterpret_cast<T *>(out), *reinterpret_cast<T const *>(in));
@@ -223,7 +235,7 @@ public:
         {
             throw logic_error("size of T and size of object to be destroyed do no match."); // LCOV_EXCL_LINE
         }
-//std::cerr << gettid() << ": --- DESTROY AN OBJECT " << reinterpret_cast<void const *>(this) << " :: " << value << " ---" << std::endl;
+
         if(size > 0)
         {
             T * v(reinterpret_cast<T *>(value));

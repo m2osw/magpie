@@ -72,7 +72,7 @@ public:
 
     void                        manage_cache(cache_impl::pointer_t impl);
     void                        release_cache(cache_impl::pointer_t impl);
-    void                        wakeup();
+    void                        wakeup(cache_impl::pointer_t impl, bool immediately = true);
     bool                        all_caches_removed() const;
     //bool                        cleanup_removed_caches();
 
@@ -95,6 +95,7 @@ private:
         snapdev::timespec_ex        f_next_cleanup = snapdev::timespec_ex();
         bool                        f_active = false;
         bool                        f_purge_expired = false;
+        bool                        f_decay_counters = false;
         bool                        f_evict_stats = false;
         bool                        f_evict_weights = false;
         bool                        f_evict_organize_by_bucket = false;
@@ -113,6 +114,7 @@ private:
     void                        handle_request(request_t const & r);
     void                        cleanup_caches();
     bool                        purge_expired(tracker_t &t);
+    bool                        decay_counters(tracker_t & t);
     bool                        evict_stats_needed(tracker_t &t);
     bool                        evict_stats(tracker_t &t);
     bool                        evict_weights(tracker_t &t);

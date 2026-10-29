@@ -64,170 +64,8 @@ namespace magpie
 
 
 
-/////////////////////// PROFILE VARIABLES ///////////////////////
 
-
-
-
-#if 0
-void eviction_policy::set_size_eviction_trigger_percent(double percent)
-{
-    f_profile.f_size_eviction_trigger_percent = percent;
-}
-
-
-double eviction_policy::get_size_eviction_trigger_percent() const
-{
-    return f_profile.f_size_eviction_trigger_percent;
-}
-
-
-void eviction_policy::set_size_eviction_reduction_percent(double percent)
-{
-    f_profile.f_size_eviction_reduction_percent = percent;
-}
-
-
-double eviction_policy::get_size_eviction_reduction_percent() const
-{
-    return f_profile.f_size_eviction_reduction_percent;
-}
-
-
-void eviction_policy::set_access_count_weight(double weight)
-{
-    f_profile.f_access_count_weight = weight;
-}
-
-
-double eviction_policy::get_access_count_weight() const
-{
-    return f_profile.f_access_count_weight;
-}
-
-
-void eviction_policy::set_recency_weight(double weight)
-{
-    f_profile.f_recency_weight = weight;
-}
-
-
-double eviction_policy::get_recency_weight() const
-{
-    return f_profile.f_recency_weight;
-}
-
-
-void eviction_policy::set_recency_decay_half_time(double decay_half_time)
-{
-    if(f_profile.f_recency_decay_half_time <= 0.0)
-    {
-        throw invalid_parameter("the recency decay half-time cannot be negative or null.");
-    }
-    f_profile.f_recency_decay_half_time = decay_half_time;
-}
-
-
-double eviction_policy::get_recency_decay_half_time() const
-{
-    return f_profile.f_recency_decay_half_time;
-}
-
-
-void eviction_policy::set_allocated_weight(double weight)
-{
-    f_profile.f_allocated_weight = weight;
-}
-
-
-double eviction_policy::get_allocated_weight() const
-{
-    return f_profile.f_allocated_weight;
-}
-
-
-void eviction_policy::set_age_weight(double weight)
-{
-    f_profile.f_age_weight = weight;
-}
-
-
-double eviction_policy::get_age_weight() const
-{
-    return f_profile.f_age_weight;
-}
-
-
-void eviction_policy::set_age_decay_half_time(double decay_half_time)
-{
-    if(f_profile.f_age_decay_half_time <= 0.0)
-    {
-        throw invalid_parameter("the age decay half-time cannot be negative or null.");
-    }
-    f_profile.f_age_decay_half_time = decay_half_time;
-}
-
-
-double eviction_policy::get_age_decay_half_time() const
-{
-    return f_profile.f_age_decay_half_time;
-}
-
-
-void eviction_policy::set_survival_weight(double weight)
-{
-    f_profile.f_survival_weight = weight;
-}
-
-
-double eviction_policy::get_survival_weight() const
-{
-    return f_profile.f_survival_weight;
-}
-
-
-void eviction_policy::set_survival_decay_half_time(double decay_half_time)
-{
-    if(f_profile.f_survival_decay_half_time <= 0.0)
-    {
-        throw invalid_parameter("the survival decay half-time cannot be negative or null.");
-    }
-    f_profile.f_survival_decay_half_time = decay_half_time;
-}
-
-
-double eviction_policy::get_survival_decay_half_time() const
-{
-    return f_profile.f_survival_decay_half_time;
-}
-
-
-void eviction_policy::set_random_weight(double random)
-{
-    f_profile.f_random_weight = random;
-}
-
-
-double eviction_policy::get_random_weight() const
-{
-    return f_profile.f_random_weight;
-}
-
-
-void eviction_policy::set_linear_normalization(linear_t linear_normalization)
-{
-    f_profile.f_linear_normalization = linear_normalization;
-}
-
-
-linear_t eviction_policy::get_linear_normalization() const
-{
-    return f_profile.f_linear_normalization;
-}
-#endif
-
-
-/////////////////////// CYCLE VARIABLES ///////////////////////
+/////////////////////// CYCLE ///////////////////////
 
 void eviction_cycle::new_cycle(
       biased_time_t const & first_item_created_on
@@ -247,206 +85,6 @@ void eviction_cycle::new_cycle(
     f_item_furthest_timeout = biased_time_t();
     f_item_highest_turn = 0.0;
 }
-
-
-
-
-
-#if 0
-void eviction_policy::set_cycle_started_on(double cycle_started_on)
-{
-    f_cycle.f_started_on = cycle_started_on;
-}
-
-
-double eviction_policy::get_cycle_started_on() const
-{
-    return f_cycle.f_started_on;
-}
-
-
-void eviction_policy::set_item_maximum_access_count(double maximum_access_count)
-{
-    f_cycle.f_item_maximum_access_count = maximum_access_count;
-}
-
-
-double eviction_policy::get_item_maximum_access_count() const
-{
-    return f_cycle.f_item_maximum_access_count;
-}
-
-
-void eviction_policy::set_item_maximum_allocated(double maximum_allocated)
-{
-    f_cycle.f_item_maximum_allocated = maximum_allocated;
-}
-
-
-double eviction_policy::get_item_maximum_allocated() const
-{
-    return f_cycle.f_item_maximum_allocated;
-}
-
-
-void eviction_policy::set_item_oldest_created_on(double created_on)
-{
-    f_cycle.f_item_oldest_created_on = created_on;
-}
-
-
-double eviction_policy::get_item_oldest_created_on() const
-{
-    return f_cycle.f_item_oldest_created_on;
-}
-
-
-void eviction_policy::set_item_most_recent_update(double updated_on)
-{
-    f_cycle.f_item_most_recent_update = updated_on;
-}
-
-
-double eviction_policy::get_item_most_recent_update() const
-{
-    return f_cycle.f_item_most_recent_update;
-}
-
-
-void eviction_policy::set_item_most_recent_touch(double touched_on)
-{
-    f_cycle.f_item_most_recent_touch = touched_on;
-}
-
-
-double eviction_policy::get_item_most_recent_touch() const
-{
-    return f_cycle.f_item_most_recent_touch;
-}
-
-
-void eviction_policy::set_item_oldest_update(double oldest_update)
-{
-    f_cycle.f_item_oldest_update = oldest_update;
-}
-
-
-double eviction_policy::get_item_oldest_update() const
-{
-    return f_cycle.f_item_oldest_update;
-}
-
-
-void eviction_policy::set_item_oldest_touch(double oldest_touch)
-{
-    f_cycle.f_item_oldest_touch = oldest_touch;
-}
-
-
-double eviction_policy::get_item_oldest_touch() const
-{
-    return f_cycle.f_item_oldest_touch;
-}
-
-
-void eviction_policy::set_item_highest_turn(double turn)
-{
-    f_cycle.f_item_highest_turn = turn;
-}
-
-
-double eviction_policy::get_item_highest_turn() const
-{
-    return f_cycle.f_item_highest_turn;
-}
-
-
-
-/////////////////////// ITEM VARIABLES ///////////////////////
-
-void eviction_policy::set_access_count(double access_count)
-{
-    f_item.f_access_count = access_count;
-}
-
-
-double eviction_policy::get_access_count() const
-{
-    return f_item.f_access_count;
-}
-
-
-void eviction_policy::set_last_updated_on(double last_updated_on)
-{
-    f_item.f_last_updated_on = last_updated_on;
-}
-
-
-double eviction_policy::get_last_updated_on() const
-{
-    return f_item.f_last_updated_on;
-}
-
-
-void eviction_policy::set_last_touched_on(double last_touched_on)
-{
-    f_item.f_last_touched_on = last_touched_on;
-}
-
-
-double eviction_policy::get_last_touched_on() const
-{
-    return f_item.f_last_touched_on;
-}
-
-
-void eviction_policy::set_allocated(double allocated)
-{
-    f_item.f_allocated = allocated;
-}
-
-
-double eviction_policy::get_allocated() const
-{
-    return f_item.f_allocated;
-}
-
-
-void eviction_policy::set_item_created_on(double created_on)
-{
-    f_item.f_created_on = created_on;
-}
-
-
-double eviction_policy::get_item_created_on() const
-{
-    return f_item.f_created_on;
-}
-
-
-void eviction_policy::set_item_timeout(double timeout)
-{
-    f_item.f_timeout = timeout;
-}
-
-
-double eviction_policy::get_item_timeout() const
-{
-    return f_item.f_timeout;
-}
-
-
-void eviction_policy::set_item_turn(double turn)
-{
-    f_item.f_turn = turn;
-}
-
-
-double eviction_policy::get_item_turn() const
-{
-    return f_item.f_turn;
-}
-#endif
 
 
 
@@ -797,47 +435,38 @@ double eviction_policy_add::compute_weight() const
     double weight(0.0);
     if(snapdev::quiet_floating_point_not_equal(profile().get_access_count_weight(), 0.0))
     {
-std::cout << "access count: " << profile().get_access_count_weight() << " * " << normalized_accesses() << std::endl;
         weight += profile().get_access_count_weight() * normalized_accesses();
     }
     if(snapdev::quiet_floating_point_not_equal(profile().get_update_count_weight(), 0.0))
     {
-std::cout << "update count: " << profile().get_update_count_weight() << " * " << normalized_updates() << std::endl;
         weight += profile().get_update_count_weight() * normalized_updates();
     }
     if(snapdev::quiet_floating_point_not_equal(profile().get_touch_count_weight(), 0.0))
     {
-std::cout << "touch count: " << profile().get_touch_count_weight() << " * " << normalized_touches() << std::endl;
         weight += profile().get_touch_count_weight() * normalized_touches();
     }
     if(snapdev::quiet_floating_point_not_equal(profile().get_recency_weight(), 0.0))
     {
-std::cout << "recency: " << profile().get_recency_weight() << " * " << normalized_recency() << std::endl;
         weight += profile().get_recency_weight() * normalized_recency();
     }
     if(snapdev::quiet_floating_point_not_equal(profile().get_allocated_weight(), 0.0))
     {
-std::cout << "allocated: " << profile().get_allocated_weight() << " * " << normalized_allocated() << std::endl;
         weight += profile().get_allocated_weight() * normalized_allocated();
     }
     if(snapdev::quiet_floating_point_not_equal(profile().get_age_weight(), 0.0))
     {
-std::cout << "age: " << profile().get_age_weight() << " * " << normalized_age() << std::endl;
         weight += profile().get_age_weight() * normalized_age();
     }
     if(snapdev::quiet_floating_point_not_equal(profile().get_survival_weight(), 0.0))
     {
-std::cout << "survival: " << profile().get_survival_weight() << " * " << normalized_survival() << std::endl;
         weight += profile().get_survival_weight() * normalized_survival();
     }
     if(snapdev::quiet_floating_point_not_equal(profile().get_turn_weight(), 0.0))
     {
-std::cout << "turn: " << profile().get_turn_weight() << " * " << normalized_turn() << std::endl;
         weight += profile().get_turn_weight() * normalized_turn();
     }
     if(snapdev::quiet_floating_point_not_equal(profile().get_random_weight(), 0.0))
     {
-std::cout << "random: " << profile().get_random_weight() << " * " << normalized_random() << std::endl;
         weight += profile().get_random_weight() * normalized_random();
     }
     return weight;

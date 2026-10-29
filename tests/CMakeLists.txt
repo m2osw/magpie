@@ -28,6 +28,7 @@ if(SnapCatch2_FOUND)
     add_executable(${PROJECT_NAME}
         catch_main.cpp
 
+        catch_add.cpp
         catch_cache.cpp
         catch_evict.cpp
         catch_options.cpp

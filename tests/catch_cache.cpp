@@ -208,12 +208,28 @@ CATCH_TEST_CASE("cache", "[cache]")
             };
             used_keys.insert(k3);
 
+            // if the value does not exist, we get an empty T
+            //
+            std::string const empty_default(const_cast<magpie::cache<cache_key_t, std::string> const &>(cache)[k1]);
+            CATCH_REQUIRE(empty_default.empty());
+
+            auto const by_ref(cache[k3]);
+            std::string const also_empty(by_ref);
+            CATCH_REQUIRE(also_empty.empty());
+
             for(int repeat(0); repeat < 10; ++repeat)
             {
                 // set a few values
                 //
                 std::string const v1(SNAP_CATCH2_NAMESPACE::random_string(1, repeat == 0 ? 4 : 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_UNICODE));
-                cache.set(k1, v1);
+                if((rand() & 1) != 0)
+                {
+                    cache.set(k1, v1);
+                }
+                else
+                {
+                    cache[k1] = v1;
+                }
 
                 cache_key_t const k2 = {
                     .a = rand(),
@@ -222,22 +238,92 @@ CATCH_TEST_CASE("cache", "[cache]")
                 };
                 used_keys.insert(k2);
                 std::string const v2(SNAP_CATCH2_NAMESPACE::random_string(1, repeat == 1 ? 8 : 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_UNICODE));
-                cache.set(k2, v2);
+                if((rand() & 1) != 0)
+                {
+                    cache.set(k2, v2);
+                }
+                else
+                {
+                    cache[k2] = v2;
+                }
 
                 std::string const v3(SNAP_CATCH2_NAMESPACE::random_string(1, repeat + 1, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_UNICODE));
-                cache.set(k3, v3);
+                if((rand() & 1) != 0)
+                {
+                    cache.set(k3, v3);
+                }
+                else
+                {
+                    cache[k3] = v3;
+                }
 
                 // verify the values -- if it works properly, we can repeat
                 //
                 for(int count(0); count < 10; ++count)
                 {
-                    std::string g1(cache.get(k1).value());
+                    std::string g1;
+                    switch(rand() % 3)
+                    {
+                    case  0:
+                        g1 = cache.get(k1).value();
+                        break;
+
+                    case 1:
+                        g1 = cache[k1];
+                        break;
+
+                    case 2:
+                        g1 = *cache[k1];
+                        break;
+
+                    }
                     SNAP_CATCH2_NAMESPACE::catch_compare_long_strings(v1, g1);
                     CATCH_REQUIRE(v1 == g1);
-                    std::string g2(cache.get(k2).value());
+
+                    std::string g2;
+                    switch(rand() % 3)
+                    {
+                    case 0:
+                        g2 = cache.get(k2).value();
+                        break;
+
+                    case 1:
+                        {
+                            auto ref = cache[k2];
+                            auto ref2 = ref;
+                            ref2 = ref2;   // make sure copy to itself doesn't blowup anything
+                            g2 = ref2;
+                        }
+                        break;
+
+                    case 2:
+                        g2 = *cache[k2];
+                        break;
+
+                    }
                     SNAP_CATCH2_NAMESPACE::catch_compare_long_strings(v2, g2);
                     CATCH_REQUIRE(v2 == g2);
-                    std::string g3(cache.get(k3).value());
+
+                    std::string g3;
+                    switch(rand() % 3)
+                    {
+                    case 0:
+                        g3 = cache.get(k3).value();
+                        break;
+
+                    case 1:
+                        {
+                            auto ref(cache[k3]);
+                            auto const ref2(ref);
+                            g3 = ref2;
+                        }
+                        break;
+
+                    case 2:
+                        g3 = *cache[k3];
+                        break;
+
+                    }
                     SNAP_CATCH2_NAMESPACE::catch_compare_long_strings(v3, g3);
                     CATCH_REQUIRE(v3 == g3);
                 }
@@ -547,7 +633,7 @@ CATCH_TEST_CASE("cache", "[cache]")
     }
     CATCH_END_SECTION()
 
-    CATCH_START_SECTION("cache: check metadata")
+    CATCH_START_SECTION("cache: check metadata without maximum lifetime")
     {
         magpie::options opts;
         magpie::cache<int, std::string> cache(opts);
@@ -567,13 +653,71 @@ CATCH_TEST_CASE("cache", "[cache]")
         CATCH_REQUIRE(info.is_defined());
 
         CATCH_REQUIRE(info.f_size == sizeof(std::string));
-        CATCH_REQUIRE(snapdev::is_between(info.f_allocated, v1.size(), v1.size() + 100));
+        CATCH_REQUIRE(snapdev::is_between(info.f_allocated, v1.capacity(), v1.capacity() + 100));
         CATCH_REQUIRE(info.f_update_count == 1);
         CATCH_REQUIRE(info.f_touch_count == 0);
         CATCH_REQUIRE(snapdev::is_between(info.f_created_on, time(nullptr) - 5, time(nullptr) + 5));
         CATCH_REQUIRE(snapdev::is_between(info.f_last_updated_on, time(nullptr) - 5, time(nullptr) + 5));
         CATCH_REQUIRE(info.f_last_touched_on == time_t());
-        CATCH_REQUIRE(info.f_stale_at == time_t());
+        CATCH_REQUIRE(info.f_timeout == time_t());
+        CATCH_REQUIRE(info.f_stale_at == info.f_timeout);
+        CATCH_REQUIRE(info.f_ttl == magpie::NO_TTL);
+        CATCH_REQUIRE(snapdev::quiet_floating_point_equal(info.f_cost, magpie::NO_COST));
+
+        std::optional<std::string> s(cache.get(33));
+        CATCH_REQUIRE(s.has_value());
+        CATCH_REQUIRE(s.value() == v1);
+
+        info = cache.get_metadata(33);
+        CATCH_REQUIRE(info.is_defined());
+        CATCH_REQUIRE(info.f_update_count == 1);
+        CATCH_REQUIRE(info.f_touch_count == 1);
+        CATCH_REQUIRE(snapdev::is_between(info.f_last_touched_on, time(nullptr) - 5, time(nullptr) + 5));
+
+        std::string const v2(SNAP_CATCH2_NAMESPACE::random_string(30, 200, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
+        status = cache.set(33, v2, 60, 0.67f);
+        CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_UPDATED);
+
+        info = cache.get_metadata(33);
+        CATCH_REQUIRE(info.is_defined());
+        CATCH_REQUIRE(info.f_update_count == 2);
+        CATCH_REQUIRE(info.f_touch_count == 1);
+        CATCH_REQUIRE(snapdev::is_between(info.f_last_updated_on, time(nullptr) - 5, time(nullptr) + 5));
+        CATCH_REQUIRE(snapdev::is_between(info.f_timeout, time(nullptr) + 55, time(nullptr) + 65));
+        CATCH_REQUIRE(info.f_stale_at == info.f_timeout);
+        CATCH_REQUIRE(info.f_ttl == 60);
+        CATCH_REQUIRE(snapdev::quiet_floating_point_equal(info.f_cost, 0.67f));
+    }
+    CATCH_END_SECTION()
+
+    CATCH_START_SECTION("cache: check metadata with a 1 day maximum lifetime")
+    {
+        magpie::options opts;
+        opts.set_maximum_lifetime(86400); // 1 day
+        magpie::cache<int, std::string> cache(opts);
+
+        // before we add the key, there is no metadata
+        //
+        magpie::metadata_t info(cache.get_metadata(33));
+        CATCH_REQUIRE_FALSE(info.is_defined());
+
+        std::string const v1(SNAP_CATCH2_NAMESPACE::random_string(30, 200, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
+        magpie::set_result_t status(cache.set(33, v1));
+        CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_ADDED);
+
+        // now it's defined
+        //
+        info = cache.get_metadata(33);
+        CATCH_REQUIRE(info.is_defined());
+
+        CATCH_REQUIRE(info.f_size == sizeof(std::string));
+        CATCH_REQUIRE(snapdev::is_between(info.f_allocated, v1.capacity(), v1.capacity() + 100));
+        CATCH_REQUIRE(info.f_update_count == 1);
+        CATCH_REQUIRE(info.f_touch_count == 0);
+        CATCH_REQUIRE(snapdev::is_between(info.f_created_on, time(nullptr) - 5, time(nullptr) + 5));
+        CATCH_REQUIRE(snapdev::is_between(info.f_last_updated_on, time(nullptr) - 5, time(nullptr) + 5));
+        CATCH_REQUIRE(info.f_last_touched_on == time_t());
+        CATCH_REQUIRE(snapdev::is_between(info.f_stale_at, time(nullptr) + 86400 - 5, time(nullptr) + 86400 + 5));
         CATCH_REQUIRE(info.f_timeout == time_t());
         CATCH_REQUIRE(info.f_ttl == magpie::NO_TTL);
         CATCH_REQUIRE(snapdev::quiet_floating_point_equal(info.f_cost, magpie::NO_COST));
@@ -597,10 +741,120 @@ CATCH_TEST_CASE("cache", "[cache]")
         CATCH_REQUIRE(info.f_update_count == 2);
         CATCH_REQUIRE(info.f_touch_count == 1);
         CATCH_REQUIRE(snapdev::is_between(info.f_last_updated_on, time(nullptr) - 5, time(nullptr) + 5));
-        CATCH_REQUIRE(snapdev::is_between(info.f_stale_at, time(nullptr) + 55, time(nullptr) + 65));
         CATCH_REQUIRE(snapdev::is_between(info.f_timeout, time(nullptr) + 55, time(nullptr) + 65));
+        CATCH_REQUIRE(info.f_stale_at == info.f_timeout); // TTL is much shorter than maximum lifetime
         CATCH_REQUIRE(info.f_ttl == 60);
         CATCH_REQUIRE(snapdev::quiet_floating_point_equal(info.f_cost, 0.67f));
+    }
+    CATCH_END_SECTION()
+
+    CATCH_START_SECTION("cache: verify decaying happens (slow)")
+    {
+        constexpr int const     VALUE_COUNT = 100;
+
+        magpie::options opts;
+        opts.set_cleanup_interval(5);
+        opts.set_update_decay(1, 1);
+        opts.set_touch_decay(1, 1);
+
+        magpie::eviction_policy_add::pointer_t ep(std::make_shared<magpie::eviction_policy_add>());
+        opts.set_eviction_policy(ep);
+
+        magpie::cache<int, int> cache(opts);
+
+        int updates[VALUE_COUNT] = {};
+        int touches[VALUE_COUNT] = {};
+        bool update_decayed(false);
+        bool touch_decayed(false);
+        do
+        {
+            for(int k(0); k < 100; ++k)
+            {
+                magpie::set_result_t status(cache.set(k, rand()));
+                if(status != magpie::set_result_t::SET_RESULT_ADDED
+                && status != magpie::set_result_t::SET_RESULT_UPDATED)
+                {
+                    CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_ADDED);
+                }
+                ++updates[k];
+                if((rand() & 1) != 0)
+                {
+                    std::optional<int> v(cache.get(k));
+                    CATCH_REQUIRE(v.has_value()); // we just set, it should always be defined
+                    ++touches[k];
+                }
+
+                magpie::metadata_t info(cache.get_metadata(k));
+                CATCH_REQUIRE(info.is_defined());
+                CATCH_REQUIRE(info.f_update_count <= updates[k]);
+                CATCH_REQUIRE(info.f_touch_count <= touches[k]);
+
+                if(updates[k] - info.f_update_count > 10)
+                {
+                    update_decayed = true;
+                }
+                if(touches[k] - info.f_touch_count > 10)
+                {
+                    touch_decayed = true;
+                }
+            }
+        }
+        while(!update_decayed || !touch_decayed);
+    }
+    CATCH_END_SECTION()
+
+    CATCH_START_SECTION("cache: verify decaying happens (fast)")
+    {
+        constexpr int const     VALUE_COUNT = 100;
+
+        magpie::options opts;
+        opts.set_cleanup_interval(5);
+        opts.set_update_decay(100, 1); // this allows us to have a decay larger than the current counter and end up using the 0
+        opts.set_touch_decay(100, 1);
+
+        magpie::eviction_policy_add::pointer_t ep(std::make_shared<magpie::eviction_policy_add>());
+        opts.set_eviction_policy(ep);
+
+        magpie::cache<int, int> cache(opts);
+
+        int updates[VALUE_COUNT] = {};
+        int touches[VALUE_COUNT] = {};
+        bool update_decayed(false);
+        bool touch_decayed(false);
+        do
+        {
+            for(int k(0); k < 100; ++k)
+            {
+                magpie::set_result_t status(cache.set(k, rand()));
+                if(status != magpie::set_result_t::SET_RESULT_ADDED
+                && status != magpie::set_result_t::SET_RESULT_UPDATED)
+                {
+                    CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_ADDED);
+                }
+                ++updates[k];
+                if((rand() & 1) != 0)
+                {
+                    std::optional<int> v(cache.get(k));
+                    CATCH_REQUIRE(v.has_value()); // we just set, it should always be defined
+                    ++touches[k];
+                }
+
+                magpie::metadata_t info(cache.get_metadata(k));
+                CATCH_REQUIRE(info.is_defined());
+                CATCH_REQUIRE(info.f_update_count <= updates[k]);
+                CATCH_REQUIRE(info.f_touch_count <= touches[k]);
+
+                if(updates[k] - info.f_update_count > 10)
+                {
+                    update_decayed = true;
+                }
+                if(touches[k] - info.f_touch_count > 10)
+                {
+                    touch_decayed = true;
+                }
+            }
+        }
+        while(!update_decayed || !touch_decayed);
     }
     CATCH_END_SECTION()
 }
@@ -623,6 +877,31 @@ CATCH_TEST_CASE("cache_error", "[cache][error]")
                     , magpie::empty_key_not_accepted
                     , Catch::Matchers::ExceptionMessage(
                               "magpie_exception: this cache was setup to not accept the empty key."));
+
+            CATCH_REQUIRE_THROWS_MATCHES(
+                      cache[std::string()] = v
+                    , magpie::empty_key_not_accepted
+                    , Catch::Matchers::ExceptionMessage(
+                              "magpie_exception: this cache was setup to not accept the empty key."));
+        }
+    }
+    CATCH_END_SECTION()
+
+    CATCH_START_SECTION("cache_error: verify a dereference on a cache_ref throws when the value is not defined")
+    {
+        for(std::size_t lock_model(0); lock_model < std::size(g_lock_models); ++lock_model)
+        {
+            magpie::options opts;
+            opts.set_lock_model(g_lock_models[lock_model]);
+
+            magpie::cache<int, int> cache(opts);
+
+            std::string const v(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_UNICODE));
+            CATCH_REQUIRE_THROWS_MATCHES(
+                      *cache[rand()]
+                    , magpie::value_not_found
+                    , Catch::Matchers::ExceptionMessage(
+                              "magpie_exception: value not currently set."));
         }
     }
     CATCH_END_SECTION()

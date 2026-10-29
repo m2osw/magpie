@@ -150,6 +150,40 @@ H = \max(N_{1}, N_{2}, \dots, N_{n})\\
 K = \max(A_{1}, A_{2}, \dots, A_{n})
 \end{aligned}$$
 
+### Setup for Survival mode (TTL extension)
+
+The TTL mode is most often in addition to the LRU or LFU setup. This
+mode computes a timeout for each time. Once `now >= timeout` is
+detected, that object gets evicted.
+
+A get() against an object which timeout is in the past also gets
+deleted by default. You can tweak the preferences to instead get
+the stale or just not return but also not delete the value.
+
+At times, though, the TTL will not kick in and yet the cache is full.
+In that case, if you are not use the LRU or LFU, you can still have
+the oldest item removed from the cache early (before their timeout
+was reached). To do so, use the survival parameter:
+
+    magpie::eviction_policy_add::pointer_t ep(std::make_shared<magpie::eviction_policy_add>());
+    ep->profile().set_size_eviction_trigger_percent(0.95);
+    ep->profile().set_size_eviction_reduction_percent(0.9);
+    ep->profile().set_survival_weight(1.0);
+    opts.set_eviction_policy(ep);
+
+That way, if the purge of old item doesn't do anything (or not enough)
+the eviction policy picks up where it left off and still deletes up to
+10% of the entries.
+
+Contrary to the FIFO mode, this setup takes the timeout in account so if
+some items have longer or shorter TTLs, that's properly taken in account
+and those items with a longer TTL are more likely to be kept longer than
+those with a shorter TTL.
+
+Equation:
+
+$$W_{eviction} = W_{\text{survival}}\frac{P - E}{M - E}$$
+
 ### Setup for LRU mode
 
 The ADD algorithm can be used to setup the eviction mode to LRU.

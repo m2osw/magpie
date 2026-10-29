@@ -55,13 +55,6 @@
 //
 #include    <magpie/lock_interface.h>
 
-//#include    <magpie/exception.h>
-
-
-
-// snapdev
-//
-//#include    <snapdev/not_used.h>
 
 
 // last include

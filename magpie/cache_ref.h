@@ -61,15 +61,28 @@ template<typename K, typename T>
 class cache_ref
 {
 public:
-    cache_ref(T * c, K const & k)
+    typedef cache<K, T>     cache_t;
+
+    cache_ref(cache_t * c, K const & k)
         : f_cache(c)
         , f_key(k)
     {
     }
 
-    explicit operator bool () const
+    cache_ref(cache_ref const & rhs)
+        : f_cache(rhs.f_cache)
+        , f_key(rhs.f_key)
     {
-        return f_cache->contains(f_key);
+    }
+
+    cache_ref & operator = (cache_ref const & rhs)
+    {
+        if(this != &rhs)
+        {
+            f_cache = rhs.f_cache;
+            f_key = rhs.f_key;
+        }
+        return *this;
     }
 
     cache_ref & operator = (T const & v)
@@ -78,8 +91,23 @@ public:
         return *this;
     }
 
+    operator T () const
+    {
+        typename cache_t::optional_t v(f_cache->get(f_key));
+        if(v.has_value())
+        {
+            return v.value();
+        }
+        return T(); // return a default/empty T otherwise
+    }
+
+    explicit operator bool () const
+    {
+        return f_cache->contains(f_key);
+    }
+
     template<typename A>
-    cache_ref & operator += (A const & a) const
+    cache_ref & operator += (A const & a)
     {
         f_cache->add(f_key, a);
         return *this;
@@ -88,11 +116,11 @@ public:
     template<typename A>
     T operator + (A const & a) const
     {
-        return f_cache->get(f_key) + a;
+        return operator T () + a;
     }
 
     template<typename A>
-    cache_ref & operator -= (A const & a) const
+    cache_ref & operator -= (A const & a)
     {
         f_cache->add(f_key, -a);
         return *this;
@@ -101,7 +129,7 @@ public:
     template<typename A>
     T operator - (A const & a) const
     {
-        return f_cache->get(f_key) - a;
+        return operator T () - a;
     }
 
     T operator * () const
@@ -115,7 +143,7 @@ public:
     }
 
 private:
-    cache<K, T> *       f_cache = nullptr;
+    cache_t *           f_cache = nullptr;
     K                   f_key = K();
 };
 

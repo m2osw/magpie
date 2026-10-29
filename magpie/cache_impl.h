@@ -96,6 +96,7 @@ struct metadata_t
     time_t                  f_timeout = time_t();
     duration_t              f_ttl = NO_TTL;
     float                   f_cost = NO_COST;
+    std::uint32_t           f_turn = 0;
 };
 
 
@@ -213,6 +214,7 @@ public:
     bool                    contains(hash_t h) const;
 
     bool                    purge_expired();
+    bool                    decay_counters();
     bool                    evict_stats();
     bool                    evict_weights();
     bool                    evict_organize_by_bucket();
@@ -277,6 +279,7 @@ private:
     biased_time_t           f_last_item_touched_on = biased_time_t();
     biased_time_t           f_most_recent_item_update = biased_time_t();
     std::size_t             f_purge_index = 0;
+    std::size_t             f_decay_index = 0;
     std::size_t             f_evict_stats_index = 0;
     std::size_t             f_evict_stats_offset = 0;
     biased_time_t           f_evict_stat_last_decayed_on = biased_time_t(); // to apply various decay to item counters

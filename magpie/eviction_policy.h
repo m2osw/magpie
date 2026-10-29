@@ -16,13 +16,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-
 /** \file
- * \brief The core implementation of the magpie cache.
+ * \brief The implementation of the eviction policy.
  *
- * This file implements the core functions of the magpie cache functionality.
+ * The cache can be setup with an eviction policy. This allows for the
+ * cache to be cleaned up automatically using a background thread.
+ *
+ * The eviction policy defines how to determine which items to evict.
+ * Note that the code here only defines the policy which main point
+ * is to compute a weight for each item in the cache and use that to
+ * know which item needs to be deleted when a limit is reached.
  */
-
 
 
 // self
@@ -30,11 +34,6 @@
 #include    <magpie/exception.h>
 #include    <magpie/utils.h>
 
-
-
-// snapdev
-//
-//#include    <snapdev/timespec_ex.h>
 
 
 // C++
@@ -307,6 +306,11 @@ public:
     double get_cycle_started_on() const
     {
         return f_started_on;
+    }
+
+    double get_cycle_turn() const
+    {
+        return f_turn;
     }
 
     void set_item_maximum_update_count(double maximum_update_count)

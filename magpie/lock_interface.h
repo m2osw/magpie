@@ -18,22 +18,27 @@
 #pragma once
 
 /** \file
- * \brief The cache setup has to be done using these options.
+ * \brief Interface implementing one of the locks supported by magpie.
  *
- * The cache must be initialized in the constructor because once
- * initialized, changes to the settings are not permitted.
+ * The cache can be used in a fully threaded environment. Because of
+ * that the cache much often be locked when used. This implements an
+ * interface allow us to support different types of locks.
+ *
+ * By default, the system uses a mutex. This is not the most ideal,
+ * but it does work quickly and properly. However, it prevents
+ * multiple threads from reading the same value. Each access is
+ * mutually exclusive.
+ *
+ * The system currently supports two other types of locks: the
+ * rwlock and the recursive_rwlock. The main problem with the
+ * rwlock is that it is not recursive. At the moment, the only
+ * functions that require recursivity are the add() functions
+ * allowing you to atomically increment or decrement a value
+ * in your cache.
+ *
+ * The rwlock is the best bet for most cases. It has one drawback,
+ * though, it can starve the write calls.
  */
-
-// self
-//
-//#include    "cache_impl.h"
-
-
-
-// snapdev
-//
-//#include    <snapdev/not_used.h>
-
 
 // C++
 //

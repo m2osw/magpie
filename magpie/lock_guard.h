@@ -35,11 +35,6 @@
 #include    <cstdint>
 
 
-// snapdev
-//
-//#include    <snapdev/not_used.h>
-
-
 
 namespace magpie
 {

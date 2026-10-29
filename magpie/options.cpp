@@ -124,12 +124,17 @@ std::size_t options::get_maximum_touch_count() const
 
 void options::set_update_decay(std::uint32_t amount, std::uint32_t period)
 {
-    f_update_decay = static_cast<double>(amount) / static_cast<double>(period);
+    set_update_decay(static_cast<double>(amount) / static_cast<double>(period));
 }
 
 
 void options::set_update_decay(double amount_per_second)
 {
+    if(amount_per_second < 0.0)
+    {
+        throw invalid_parameter("update decay cannot be negative.");
+    }
+
     f_update_decay = amount_per_second;
 }
 
@@ -142,12 +147,17 @@ double options::get_update_decay() const
 
 void options::set_touch_decay(std::uint32_t amount, std::uint32_t period)
 {
-    f_touch_decay = static_cast<double>(amount) / static_cast<double>(period);
+    set_touch_decay(static_cast<double>(amount) / static_cast<double>(period));
 }
 
 
 void options::set_touch_decay(double amount_per_second)
 {
+    if(amount_per_second < 0.0)
+    {
+        throw invalid_parameter("touch decay cannot be negative.");
+    }
+
     f_touch_decay = amount_per_second;
 }
 

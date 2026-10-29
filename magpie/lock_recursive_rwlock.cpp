@@ -16,27 +16,28 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-
 /** \file
- * \brief The cache setup is done using these options.
+ * \brief Implementation of the recursive_rwlock class.
  *
- * The mapgpie::cache class must be initialized in the constructor
- * because once initialized, changes to the settings are not permitted.
- * For that reason, it uses an options class to pre-define all the
- * settings.
+ * This file implements the recursive_rwlock.
+ *
+ * \note
+ * There are two drawbacks to this lock: to allow for the recursivity,
+ * it makes use of a mutex. That's a contention point (even if really
+ * short, it is necessary when locking and unlocking the rwlock).
+ * \par
+ * The second issue is that it gives readers priority meaning that
+ * a set() may block and be starved for a while until all the
+ * reader threads are done with the cache. In my experience with
+ * such caches, this is rarely an issue since all the readers are
+ * done quickly. If you do not want to deal with such contentions
+ * then a mutex lock is what you need to use.
  */
 
 // self
 //
 #include    <magpie/lock_recursive_rwlock.h>
 
-//#include    <magpie/exception.h>
-
-
-
-// snapdev
-//
-//#include    <snapdev/not_used.h>
 
 
 // last include

@@ -32,11 +32,6 @@
 
 
 
-// snapdev
-//
-//#include    <snapdev/not_used.h>
-
-
 // last include
 //
 #include    <snapdev/poison.h>

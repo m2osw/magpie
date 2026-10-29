@@ -24,12 +24,6 @@
  * in the utils header and implementation.
  */
 
-// self
-//
-//#include    <magpie/eviction_policy.h>
-
-
-
 // C++
 //
 #include    <cstdint>

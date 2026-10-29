@@ -75,8 +75,12 @@ constexpr models const g_lock_models[] =
 
 CATCH_TEST_CASE("ttl", "[ttl]")
 {
-    CATCH_START_SECTION("ttl: test cache with items using a TTL")
+    CATCH_START_SECTION("ttl: test cache::get() with items using a TTL, stale items get deleted on the spot")
     {
+        // WARNING: because of timings, we cannot guarantee that the get() will auto-delete
+        //          it stale items; yet, I ran the tests many times and it succeeded each
+        //          time even when the part the purge was implemented to throw an error
+        //
         for(std::size_t lock_model(0); lock_model < std::size(g_lock_models); ++lock_model)
         {
             magpie::options opts;
@@ -170,6 +174,102 @@ std::cerr << "+++ latest v3 = " << v3 << "\n";
     }
     CATCH_END_SECTION()
 
+    CATCH_START_SECTION("ttl: test cache with items using a TTL, stale items do not get deleted on the spot when just calling get() -- they disappear because of the purge")
+    {
+        for(std::size_t lock_model(0); lock_model < std::size(g_lock_models); ++lock_model)
+        {
+            magpie::options opts;
+            opts.set_lock_model(g_lock_models[lock_model].f_mode);
+            opts.set_default_ttl(95);       // ~1.5 minutes (1% is 0.95 which we use below)
+            opts.set_cleanup_interval(3);   // 3 seconds
+            opts.set_stale_data(magpie::stale_data_t::STALE_DATA_RETURN);
+
+            // construct
+            //
+            magpie::cache<std::string, std::string> cache(opts);
+
+            for(;;)
+            {
+                std::string const k1(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_UNICODE));
+                std::string const k2(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_UNICODE));
+                std::string const k3(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_UNICODE));
+
+                if(k1 == k2
+                || k2 == k3
+                || k1 == k3)
+                {
+                    continue;
+                }
+
+                //std::string const v1(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_UNICODE));
+                //std::string const v2(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_UNICODE));
+                //std::string const v3(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_UNICODE));
+                std::string const v1(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
+                std::string const v2(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
+                std::string const v3(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
+std::cerr << "+++ latest v1 = " << v1 << "\n";
+std::cerr << "+++ latest v2 = " << v2 << "\n";
+std::cerr << "+++ latest v3 = " << v3 << "\n";
+
+                magpie::set_result_t status(cache.set(k1, v1));      // keep default TTL (~1.5m)
+                CATCH_REQUIRE(magpie::set_result_t::SET_RESULT_ADDED == status);
+                status = cache.set(k2, v2, 1);
+                CATCH_REQUIRE(magpie::set_result_t::SET_RESULT_ADDED == status);
+                status = cache.set(k3, v3, 4);
+                CATCH_REQUIRE(magpie::set_result_t::SET_RESULT_ADDED == status);
+
+                // verify the values
+                //
+                // within the first 3 seconds, k2's value is erased
+                // within the next 3 seconds, k3's value is erased
+                //
+                bool two_auto_erased(false);
+                bool three_auto_erased(false);
+                for(int count(0); count < 10; ++count)
+                {
+                    std::cout << "--- lock mode: " << g_lock_models[lock_model].f_name << " -- check #" << count << " ---" << std::endl;
+
+                    // v1 should last 1h, so no issue here
+                    //
+                    std::optional<std::string> v(cache.get(k1));
+                    CATCH_REQUIRE(v.has_value());
+                    CATCH_REQUIRE(v.value() == v1);
+
+                    v = cache.get(k2);
+                    if(v.has_value())
+                    {
+                        CATCH_REQUIRE(v.value() == v2);
+                    }
+                    else
+                    {
+                        CATCH_REQUIRE(count > 0);
+                        two_auto_erased = true;
+                    }
+
+                    v = cache.get(k3);
+                    if(v.has_value())
+                    {
+                        CATCH_REQUIRE(cache.get(k3).value() == v3);
+                    }
+                    else
+                    {
+                        CATCH_REQUIRE(count > 1);
+                        three_auto_erased = true;
+                    }
+
+                    sleep(1);
+                }
+                CATCH_REQUIRE(two_auto_erased);
+                CATCH_REQUIRE(three_auto_erased);
+
+                break;
+            }
+
+            // done, everything gets destroyed
+        }
+    }
+    CATCH_END_SECTION()
+
     CATCH_START_SECTION("ttl: test cache with one item using a TTL too small to be added")
     {
         magpie::options opts;
@@ -199,7 +299,7 @@ std::cerr << "+++ latest v3 = " << v3 << "\n";
         magpie::options opts;
         opts.set_lock_model(magpie::lock_model_t::LOCK_MODEL_RECURSIVE_RWLOCK);
         opts.set_default_ttl(3600);     // 1 hour
-        opts.set_cleanup_interval(60);  // 3 seconds
+        opts.set_cleanup_interval(60);  // 1 minute
         magpie::cache<std::string, std::string> cache(opts);
 
         std::string const k1(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_UNICODE));

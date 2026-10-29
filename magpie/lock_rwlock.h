@@ -18,10 +18,21 @@
 #pragma once
 
 /** \file
- * \brief The cache setup has to be done using these options.
+ * \brief Declarations of the rwlock implementation.
  *
- * The cache must be initialized in the constructor because once
- * initialized, changes to the settings are not permitted.
+ * This file declares the rwlock.
+ *
+ * Note that this lock is created giving readers priority. This means
+ * a set() may be starved while many other threads read values from
+ * the cache.
+ *
+ * \warning
+ * The rwlock is not recursive. That means you cannot double lock
+ * the same lock (that would result in a deadlock).
+ * \par
+ * At the moment, the only functions that make use of the recursivity
+ * are the add() and related functions. If you do not have any use
+ * of those, then this lock is appropriate.
  */
 
 // self
@@ -35,16 +46,6 @@
 #include    <cppthread/rwlock.h>
 
 
-// C++
-//
-//#include    <cstdint>
-
-
-// snapdev
-//
-//#include    <snapdev/not_used.h>
-
-
 
 namespace magpie
 {
@@ -55,7 +56,7 @@ namespace detail
 
 class lock_rwlock
     : public lock_interface
-    , cppthread::rwlock
+    , private cppthread::rwlock
 {
 public:
     typedef std::shared_ptr<lock_rwlock>        pointer_t;

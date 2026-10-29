@@ -16,4 +16,8 @@
   - Remote or Two-Tier Cache -- cache on a separate server; this would not be
     implemented here and could instead use Prinbee which does that already
 
+* Consider breaking the `eviction_policy.h/cpp` in separate files
+  - the actual `eviction_policy` class can stay in the same files
+  - move the profile, cycle, and item to separate files
+  - maybe create a separate file for the implementations of the policy
 

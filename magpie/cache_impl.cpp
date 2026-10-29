@@ -112,7 +112,6 @@ void start_stop_cleanup_worker(cache_impl::pointer_t impl, cleanup_worker_action
 {
     static cppthread::mutex local_lock = cppthread::mutex();
     cppthread::guard lock(local_lock);
-std::cerr << gettid() << ": --- start_stop_cleanup_worker() get cleanup thread ready or stopped ---" << std::endl;
 
     // done with the thread?
     //
@@ -142,20 +141,16 @@ std::cerr << gettid() << ": --- start_stop_cleanup_worker() get cleanup thread r
         {
             // thread was never allocated, nothing to do here
             //
-std::cerr << gettid() << ": --- start_stop_cleanup_worker() no cleanup thread? ---" << std::endl;
             break;
         }
-std::cerr << gettid() << ": --- start_stop_cleanup_worker() ready to release cache ---" << std::endl;
         g_cleanup_runner->release_cache(impl);
 
         if(!g_cleanup_runner->all_caches_removed())
         {
             // the runner still has some cache_impl to manage
             //
-std::cerr << gettid() << ": --- start_stop_cleanup_worker() still has caches to manage ---" << std::endl;
             break;
         }
-std::cerr << gettid() << ": --- start_stop_cleanup_worker() done managing threads ---" << std::endl;
         g_cleanup_thread.reset();
         g_cleanup_runner.reset();
         break;
@@ -167,7 +162,7 @@ std::cerr << gettid() << ": --- start_stop_cleanup_worker() done managing thread
             //
             break;
         }
-        static_cast<cleanup_runner *>(g_cleanup_runner.get())->wakeup();
+        static_cast<cleanup_runner *>(g_cleanup_runner.get())->wakeup(impl);
         break;
 
     }
@@ -377,6 +372,16 @@ cache_impl::cache_impl(
     : f_parent(parent)
     , f_opts(opts)
 {
+    if(snapdev::quiet_floating_point_not_equal(f_opts.get_update_decay(), 0.0)
+    || snapdev::quiet_floating_point_not_equal(f_opts.get_touch_decay(), 0.0))
+    {
+        eviction_policy::pointer_t ep(f_opts.get_eviction_policy());
+        if(ep == nullptr)
+        {
+            throw invalid_parameter("options define decay counters without an eviction setup.");
+        }
+    }
+
     std::size_t const bucket_count(opts.get_bucket_count());
     lock_model_t const lock_model(opts.get_lock_model());
 
@@ -430,7 +435,9 @@ bool cache_impl::is_cleanup_worker_required() const
     return (f_opts.get_default_ttl() != NO_TTL && f_opts.get_default_ttl() != DEFAULT_TTL)
         || f_opts.get_maximum_lifetime() != NO_MAXIMUM_LIFETIME
         || f_opts.get_capacity_limit() > 0
-        || f_opts.get_count_limit() > 0;
+        || f_opts.get_count_limit() > 0
+        || f_opts.get_update_decay() > 0.0
+        || f_opts.get_touch_decay() > 0.0;
 }
 
 
@@ -446,14 +453,12 @@ void cache_impl::start_cleanup_worker()
 
 void cache_impl::cache_done()
 {
-std::cerr << gettid() << ": --- cache_done() called... calling stop ---" << std::endl;
     start_stop_cleanup_worker(shared_from_this(), cleanup_worker_action_t::CLEANUP_WORKER_ACTION_STOP);
 }
 
 
 void cache_impl::activate_eviction()
 {
-std::cerr << gettid() << ": --- activate_eviction() called... calling wakeup ---" << std::endl;
     start_stop_cleanup_worker(shared_from_this(), cleanup_worker_action_t::CLEANUP_WORKER_ACTION_WAKEUP);
 }
 
@@ -809,8 +814,6 @@ bool cache_impl::get(
     {
         if(f_opts.get_stale_data() == stale_data_t::STALE_DATA_DELETE)
         {
-std::cerr << "--- auto-purge in get()?!" << std::endl;
-
             // item timed out, get rid of it
             //
             if(bucket.f_lock->supports_rlock())
@@ -894,14 +897,22 @@ metadata_t cache_impl::get_metadata(hash_t h)
     result.f_timeout = unbias_biased_time(it->second.f_timeout);
     result.f_cost = it->second.f_cost;
     result.f_ttl = it->second.f_ttl;
+    result.f_turn = it->second.f_turn;
 
     // compute the time when the data is considered stale
     //
-    result.f_stale_at = unbias_biased_time(it->second.f_timeout);
+    result.f_stale_at = result.f_timeout;
     if(f_opts.get_maximum_lifetime() != NO_MAXIMUM_LIFETIME)
     {
         time_t const maximum_stale_at(unbias_biased_time(it->second.f_created_on) + f_opts.get_maximum_lifetime());
-        result.f_stale_at = std::min(result.f_stale_at, maximum_stale_at);
+        if(result.f_stale_at == time_t())
+        {
+            result.f_stale_at = maximum_stale_at;
+        }
+        else
+        {
+            result.f_stale_at = std::min(result.f_stale_at, maximum_stale_at);
+        }
     }
 
     return result;
@@ -980,7 +991,6 @@ bool cache_impl::contains(hash_t h) const
  */
 bool cache_impl::purge_expired()
 {
-std::cerr << "--- purge_expired() called... " << f_current_count_usage << "/" << f_purged_counter << std::endl;
     bucket_t & bucket{ f_buckets[f_purge_index] };
 
     {
@@ -990,13 +1000,6 @@ std::cerr << "--- purge_expired() called... " << f_current_count_usage << "/" <<
         auto it(bucket.f_entries.begin());
         while(it != bucket.f_entries.end())
         {
-//std::cerr << std::boolalpha << "--- purge_expired() >> bucket[" << f_purge_index << "] = "
-//<< *reinterpret_cast<std::string const *>(it->second.f_value)
-//<< " -- now: " << (time(nullptr))
-//<< " vs timeout " << it->second.f_timeout
-//<< " -> " << (it->second.f_timeout != time_t() && time(nullptr) >= it->second.f_timeout)
-//<< " [" << (it->second.f_timeout != time_t()) << ", " << (time(nullptr) >= it->second.f_timeout) << "]"
-//<< ".\n";
             if(item_timed_out(it->second))
             {
                 --f_current_count_usage;
@@ -1010,7 +1013,6 @@ std::cerr << "--- purge_expired() called... " << f_current_count_usage << "/" <<
             }
         }
     }
-std::cerr << "--- purge_expired() done looping... " << f_current_count_usage << "/" << f_purged_counter << std::endl;
 
     ++f_purge_index;
     if(f_purge_index >= f_buckets.size())
@@ -1018,6 +1020,80 @@ std::cerr << "--- purge_expired() done looping... " << f_current_count_usage << 
         f_purge_index = 0;
         return true;
     }
+
+    return false;
+}
+
+
+bool cache_impl::decay_counters()
+{
+    double const update_decay(f_opts.get_update_decay());
+    double const touch_decay(f_opts.get_touch_decay());
+
+    // if there is no decay, stop this immediately
+    //
+    if(snapdev::quiet_floating_point_equal(update_decay, 0.0)
+    && snapdev::quiet_floating_point_equal(touch_decay, 0.0))
+    {
+        return true;
+    }
+
+    if(f_decay_index == 0)
+    {
+        f_evict_stat_last_decayed_on = biased_time_t();
+    }
+
+    bool skip_empty(false);
+    do
+    {
+        bucket_t & bucket{ f_buckets[f_decay_index] };
+
+        {
+            // -------------------- LOCK --------------------
+            lock_guard lock(bucket.f_lock, true);
+
+            for(auto & e : bucket.f_entries)
+            {
+                if(update_decay > 0.0)
+                {
+                    double decay(update_decay + f_evict_stat_update_decay_frac);
+                    f_evict_stat_update_decay_frac = std::modf(decay, &decay);
+                    std::uint64_t const count(decay);
+                    if(e.second.f_update_count > count)
+                    {
+                        e.second.f_update_count -= count;
+                    }
+                    else
+                    {
+                        e.second.f_update_count = 0;
+                    }
+                }
+
+                if(touch_decay > 0.0)
+                {
+                    double decay(touch_decay + f_evict_stat_touch_decay_frac);
+                    f_evict_stat_touch_decay_frac = std::modf(decay, &decay);
+                    std::uint64_t const count(decay);
+                    if(e.second.f_touch_count > count)
+                    {
+                        e.second.f_touch_count -= count;
+                    }
+                    else
+                    {
+                        e.second.f_touch_count = 0;
+                    }
+                }
+            }
+        }
+
+        ++f_decay_index;
+        if(f_decay_index >= f_buckets.size())
+        {
+            f_decay_index = 0;
+            return true;
+        }
+    }
+    while(skip_empty);
 
     return false;
 }
@@ -1077,21 +1153,9 @@ bool cache_impl::evict_stats()
 
     if(f_evict_stats_index == 0)
     {
-        if(ep->cycle().get_cycle_started_on() > 0.0)
-        {
-            f_evict_stat_last_decayed_on = ep->cycle().get_cycle_started_on();
-        }
-
         ep->cycle().new_cycle(f_first_item_created_on, f_last_item_touched_on);
 
         f_evict_stats_offset = snapdev::random(0UL, f_buckets.size() - 1UL);
-
-        // the following allows us to manage special cases everywhere else
-        //
-        if(f_evict_stat_last_decayed_on == biased_time_t())
-        {
-            f_evict_stat_last_decayed_on = ep->cycle().get_cycle_started_on();
-        }
     }
 
     // the EVICT_SWEEP_STRIDE and f_evict_stats_offset gives us a seemingly
@@ -1208,11 +1272,6 @@ bool cache_impl::evict_weights()
                 f_evict_smallest_weights_count = eviction_count;
             }
         }
-std::cerr << "--- evict_stats() count set to = "
-<< f_evict_smallest_weights_count
-//<< " -- max access: " << f_evict_stat_max_accesses_for_weight
-//<< " -- latest access: " << f_evict_stat_latest_touch_age_for_weight
-<< std::endl;
     }
 
     // the EVICT_SWEEP_STRIDE and f_evict_weight_offset gives us a seemingly
@@ -1253,39 +1312,6 @@ std::cerr << "--- evict_stats() count set to = "
                 //
                 double const weight(ep->compute_weight());
 
-                // decay counters if user requested so
-                //
-                double decay(f_opts.get_update_decay());
-                if(decay > 0.0)
-                {
-                    decay += f_evict_stat_update_decay_frac;
-                    f_evict_stat_update_decay_frac = std::modf(decay, &decay);
-                    std::uint64_t const update_decay(decay);
-                    if(e.second.f_update_count > update_decay)
-                    {
-                        e.second.f_update_count -= update_decay;
-                    }
-                    else
-                    {
-                        e.second.f_update_count = 0;
-                    }
-                }
-                decay = f_opts.get_touch_decay();
-                if(decay > 0.0)
-                {
-                    decay += f_evict_stat_touch_decay_frac;
-                    f_evict_stat_touch_decay_frac = std::modf(decay, &decay);
-                    std::uint64_t const access_decay(decay);
-                    if(e.second.f_touch_count > access_decay)
-                    {
-                        e.second.f_touch_count -= access_decay;
-                    }
-                    else
-                    {
-                        e.second.f_touch_count = 0;
-                    }
-                }
-
                 // register the weight if it's a match
                 //
                 if(f_evict_smallest_weights.size() < f_evict_smallest_weights_count)
@@ -1299,11 +1325,6 @@ std::cerr << "--- evict_stats() count set to = "
                 }
             }
         }
-std::cerr << "--- evict_stats() smallest weight: " << f_evict_smallest_weights.size() << std::endl;
-//for(auto const & e : f_evict_smallest_weights)
-//{
-//    std::cerr << "  " << e.f_weight
-//}
 
         ++f_evict_weight_index;
         if(f_evict_weight_index >= f_buckets.size())
@@ -1394,12 +1415,6 @@ bool cache_impl::evict()
         std::size_t const bucket_idx(bucket_it->first);
         bucket_t & bucket{ f_buckets[bucket_idx] };
 
-std::cerr << "--- evict from bucket: " << bucket_idx << " (" << f_evict_targets_by_bucket.size() << "/" << bucket_it->second.size() << "/" << f_current_count_usage << "/" << f_eviction_counter << ")\n";
-std::cerr << "--- evict need more eviction? "
-    << f_current_count_usage << " > " << count_limit
-    << " and "
-    << f_current_capacity_usage << " > " << capacity_limit
-    << "\n";
         bool done(false);
         {
             // -------------------- LOCK --------------------
@@ -1439,7 +1454,6 @@ std::cerr << "--- evict need more eviction? "
         {
             f_evict_targets_by_bucket.erase(bucket_it);
         }
-std::cerr << "--- evicted from bucket: " << bucket_idx << " -- erased? (" << f_evict_targets_by_bucket.size() << "/" << f_current_count_usage << "/" << f_eviction_counter << "/" << std::boolalpha << done << ")\n";
     }
 
     return f_evict_targets_by_bucket.empty();

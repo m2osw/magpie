@@ -33,6 +33,11 @@
 #include    <cppthread/thread.h>
 
 
+// snapdev
+//
+#include    <snapdev/timespec_ex.h>
+
+
 // C++
 //
 #include    <random>
@@ -106,6 +111,7 @@ CATCH_TEST_CASE("evict_least_recent", "[evict][thread]")
             ep->profile().set_allocated_weight(0.0);
             ep->profile().set_age_weight(0.0);
             ep->profile().set_survival_weight(0.0);
+            ep->profile().set_turn_weight(0.0);
             ep->profile().set_random_weight(0.0);
             opts.set_eviction_policy(ep);
 
@@ -231,6 +237,7 @@ CATCH_TEST_CASE("evict_least_frequent", "[evict][thread]")
             ep->profile().set_allocated_weight(0.0);
             ep->profile().set_age_weight(0.0);
             ep->profile().set_survival_weight(0.0);
+            ep->profile().set_turn_weight(0.0);
             ep->profile().set_random_weight(0.0);
             opts.set_eviction_policy(ep);
 
@@ -356,6 +363,7 @@ CATCH_TEST_CASE("evict_largest_first", "[evict][thread]")
             ep->profile().set_allocated_weight(-1.0); // to remove the largest files, use a negative weight
             ep->profile().set_age_weight(0.0);
             ep->profile().set_survival_weight(0.0);
+            ep->profile().set_turn_weight(0.0);
             ep->profile().set_random_weight(0.0);
             opts.set_eviction_policy(ep);
 
@@ -487,6 +495,7 @@ CATCH_TEST_CASE("evict_smallest_first", "[evict][thread]")
             ep->profile().set_allocated_weight(1.0); // a positive weight means: remove the smallest files
             ep->profile().set_age_weight(0.0);
             ep->profile().set_survival_weight(0.0);
+            ep->profile().set_turn_weight(0.0);
             ep->profile().set_random_weight(0.0);
             opts.set_eviction_policy(ep);
 
@@ -616,6 +625,7 @@ CATCH_TEST_CASE("evict_fifo", "[evict][thread]")
             ep->profile().set_allocated_weight(0.0);
             ep->profile().set_age_weight(1.0); // by itself it represents the FIFO mode
             ep->profile().set_survival_weight(0.0);
+            ep->profile().set_turn_weight(0.0);
             ep->profile().set_random_weight(0.0);
             opts.set_eviction_policy(ep);
 
@@ -738,6 +748,256 @@ std::cout << "--- loop -- missing: " << missing << " -- current capacity: " << c
     }
     CATCH_END_SECTION()
 }
+
+
+CATCH_TEST_CASE("evict_survival", "[evict][thread]")
+{
+    CATCH_START_SECTION("evict_survival: fill up the cache so TTL is used by the eviction process instead of the purge process")
+    {
+        constexpr std::size_t const VALUES_COUNT = 30;
+
+        for(std::size_t lock_model(0); lock_model < std::size(g_lock_models); ++lock_model)
+        {
+            magpie::options opts;
+            opts.set_lock_model(g_lock_models[lock_model].f_mode);
+            opts.set_default_ttl(86400);    // 1 day
+            opts.set_cleanup_interval(3);   // 3 seconds
+            opts.set_count_limit(VALUES_COUNT);
+
+            // use a random policy but if an item has many turns, increase
+            // its likelihood to be evicted
+            //
+            magpie::eviction_policy_add::pointer_t ep(std::make_shared<magpie::eviction_policy_add>());
+            ep->profile().set_size_eviction_trigger_percent(0.9);
+            ep->profile().set_size_eviction_reduction_percent(0.5);
+            ep->profile().set_access_count_weight(0.0);
+            ep->profile().set_recency_weight(0.0);
+            ep->profile().set_allocated_weight(0.0);
+            ep->profile().set_age_weight(0.0);
+            ep->profile().set_survival_weight(1.0);
+            ep->profile().set_turn_weight(0.0);
+            ep->profile().set_random_weight(0.0);
+            opts.set_eviction_policy(ep);
+
+            // construct
+            //
+            magpie::cache<int, int> cache(opts);
+
+            for(std::size_t w(0), r(0); r < VALUES_COUNT * 2; ++w)
+            {
+                magpie::set_result_t status(cache.set(w, w));
+                if(status != magpie::set_result_t::SET_RESULT_ADDED
+                && status != magpie::set_result_t::SET_RESULT_REJECTED_COUNT)
+                {
+                    CATCH_REQUIRE(magpie::set_result_t::SET_RESULT_ADDED == status);
+                }
+
+                // when the delete occurs, it's not necessarily in order
+                // because it's done on a per bucket basis; but if one
+                // item was evicted, the previous ones cannot reappear
+                //
+                for(std::size_t evicted(0);; ++evicted)
+                {
+                    magpie::cache<int, int>::optional_t v(cache.get(evicted));
+                    if(v.has_value())
+                    {
+                        CATCH_REQUIRE(r == evicted);
+                        CATCH_REQUIRE(r == static_cast<std::size_t>(v.value()));
+                        break;
+                    }
+                    if(evicted == r)
+                    {
+                        ++r;
+                    }
+                }
+
+                sleep(1);
+            }
+
+
+            // done, everything gets destroyed
+        }
+    }
+    CATCH_END_SECTION()
+}
+
+
+CATCH_TEST_CASE("evict_turn", "[evict][thread]")
+{
+    CATCH_START_SECTION("evict_turn: test 100 items, refill a few times so we can see the eviction turn growing")
+    {
+        constexpr std::size_t const VALUES_COUNT = 100;
+        std::random_device          rd;
+        std::mt19937                g(rd());
+
+        int indexes[VALUES_COUNT];
+        std::iota(std::begin(indexes), std::end(indexes), 0);
+
+        for(std::size_t lock_model(0); lock_model < std::size(g_lock_models); ++lock_model)
+        {
+            magpie::options opts;
+            opts.set_lock_model(g_lock_models[lock_model].f_mode);
+            opts.set_cleanup_interval(3);   // 3 seconds
+            opts.set_count_limit(VALUES_COUNT);
+
+            // use a random policy but if an item has many turns, increase
+            // its likelihood to be evicted
+            //
+            magpie::eviction_policy_add::pointer_t ep(std::make_shared<magpie::eviction_policy_add>());
+            ep->profile().set_size_eviction_trigger_percent(0.9);
+            ep->profile().set_size_eviction_reduction_percent(0.5);
+            ep->profile().set_access_count_weight(0.0);
+            ep->profile().set_recency_weight(0.0);
+            ep->profile().set_allocated_weight(0.0);
+            ep->profile().set_age_weight(0.0);
+            ep->profile().set_survival_weight(0.0);
+            ep->profile().set_turn_weight(1.0);
+            ep->profile().set_random_weight(0.2);
+            opts.set_eviction_policy(ep);
+
+            // construct
+            //
+            magpie::cache<int, int> cache(opts);
+
+            std::shuffle(std::begin(indexes), std::end(indexes), g);
+            for(std::size_t idx(0); idx < std::size(indexes); ++idx)
+            {
+                magpie::set_result_t status(cache.set(indexes[idx], rand()));
+                CATCH_REQUIRE(magpie::set_result_t::SET_RESULT_ADDED == status);
+            }
+
+            std::uint32_t max_turn(0);
+            for(;;)
+            {
+                std::shuffle(std::begin(indexes), std::end(indexes), g);
+                for(std::size_t idx(0); idx < std::size(indexes); ++idx)
+                {
+                    magpie::set_result_t status(cache.set(indexes[idx], rand()));
+                    if(magpie::set_result_t::SET_RESULT_ADDED != status
+                    && magpie::set_result_t::SET_RESULT_UPDATED != status)
+                    {
+                        CATCH_REQUIRE(magpie::set_result_t::SET_RESULT_ADDED == status);
+                    }
+
+                    // if the eviction works as expected, then the f_turn of
+                    // an item can never go up higher than 2 or 3 before it
+                    // gets evicted (so far the highest I've seen is 2)
+                    //
+                    magpie::metadata_t const info(cache.get_metadata(indexes[idx]));
+                    CATCH_REQUIRE(info.f_turn < 4);
+
+                    if(info.f_turn > max_turn)
+                    {
+                        max_turn = info.f_turn;
+                    }
+                }
+
+                // run 10 cycles to really prove that the eviction works
+                //
+                if(ep->cycle().get_cycle_turn() >= 10)
+                {
+                    break;
+                }
+
+                sleep(1);
+            }
+            std::cout << "--- max turn in item = " << max_turn << std::endl;
+
+
+            // done, everything gets destroyed
+        }
+    }
+    CATCH_END_SECTION()
+}
+
+
+CATCH_TEST_CASE("evict_wakeup", "[evict][thread]")
+{
+    CATCH_START_SECTION("evict_wakeup: create many items, make sure the first deletions happen quickly")
+    {
+        constexpr std::size_t const     VALUE_COUNT = 100;
+
+        // we are not supposed to be running anything at this point
+        //
+        CATCH_REQUIRE(cppthread::thread::get_running_threads() == 0);
+
+        for(std::size_t lock_model(0); lock_model < std::size(g_lock_models); ++lock_model)
+        {
+            magpie::options opts;
+            opts.set_lock_model(g_lock_models[lock_model].f_mode);
+            opts.set_default_ttl(86400);        // 1 day
+            opts.set_cleanup_interval(300);     // 5m
+            opts.set_count_limit(VALUE_COUNT);
+
+            magpie::eviction_policy_add::pointer_t ep(std::make_shared<magpie::eviction_policy_add>());
+            ep->profile().set_size_eviction_trigger_percent(0.9);
+            ep->profile().set_size_eviction_reduction_percent(0.5);
+            ep->profile().set_access_count_weight(0.0);
+            ep->profile().set_recency_weight(0.0);
+            ep->profile().set_allocated_weight(0.0);
+            ep->profile().set_age_weight(1.0); // by itself it represents the FIFO mode
+            ep->profile().set_survival_weight(0.0);
+            ep->profile().set_turn_weight(0.0);
+            ep->profile().set_random_weight(0.0);
+            opts.set_eviction_policy(ep);
+
+            magpie::cache<int, int> cache(opts);
+
+            // having the least recently used flag on means a cleanup thread
+            // gets started by the constructor
+            //
+            CATCH_REQUIRE(cppthread::thread::get_running_threads() == 1);
+
+            // create & save the buffers in the cache
+            // capacity will be overflown at some point, we stop the loop then
+            // that even should immediately kickstart the eviction process
+            //
+            std::size_t k(0);
+            for(;; ++k)
+            {
+                magpie::set_result_t const r(cache.set(k, rand()));
+                if(r != magpie::set_result_t::SET_RESULT_ADDED)
+                {
+                    CATCH_REQUIRE(magpie::set_result_t::SET_RESULT_REJECTED_COUNT == r);
+                    break;
+                }
+            }
+
+            snapdev::timespec_ex const quick_sleep(0, 1'000);
+            snapdev::timespec_ex const start(snapdev::now());
+            for(std::size_t l(0);; ++l)
+            {
+                std::optional<int> v(cache.get(l % k));
+                if(!v.has_value())
+                {
+                    // item 0 was removed, we missed the SET_RESULT_REJECTED_CAPACITY
+                    // during our sleep it looks like
+                    //
+                    break;
+                }
+
+                // if the test is failing, return anyway
+                //
+                snapdev::timespec_ex const check_end(snapdev::now());
+                snapdev::timespec_ex const check_duration(check_end - start);
+                if(check_duration.tv_sec > 10)
+                {
+                    break;
+                }
+
+                // without this, the get() are really fast possibly
+                // preventing the eviction from running
+                //
+                nanosleep(&quick_sleep, nullptr);
+            }
+            snapdev::timespec_ex const end(snapdev::now());
+            snapdev::timespec_ex const duration(end - start);
+            CATCH_REQUIRE(duration.tv_sec < 5);
+        }
+    }
+    CATCH_END_SECTION()
+}
+
 
 
 

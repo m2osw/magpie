@@ -18,23 +18,18 @@
 
 
 /** \file
- * \brief The cache setup is done using these options.
+ * \brief Utility functions and variables.
  *
- * The mapgpie::cache class must be initialized in the constructor
- * because once initialized, changes to the settings are not permitted.
- * For that reason, it uses an options class to pre-define all the
- * settings.
+ * The mapgpie cache uses these utility functions and variables in
+ * various places.
+ *
+ * These are useful global functions.
  */
 
 // self
 //
 #include    <magpie/utils.h>
 
-
-
-// snapdev
-//
-//#include    <snapdev/not_used.h>
 
 
 // last include
