@@ -290,7 +290,8 @@ CATCH_TEST_CASE("cache", "[cache]")
                     case 1:
                         {
                             auto ref = cache[k2];
-                            auto ref2 = ref;
+                            magpie::cache_ref<cache_key_t, std::string> ref2(&cache, k2);
+                            ref2 = ref;
                             ref2 = ref2;   // make sure copy to itself doesn't blowup anything
                             g2 = ref2;
                         }

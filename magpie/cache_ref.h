@@ -18,13 +18,37 @@
 
 
 /** \file
- * \brief The main() function of the magpie library tests.
+ * \brief A cache reference to support the [] operator.
  *
- * This file implements the main() function of the unit tests used to
- * verify the magpie library.
+ * This file implements a cache reference allowing the use of the []
+ * operator with a cache object.
  *
- * It defines any globals (none at this point) and a few basic command
- * line options such as --help and --version.
+ * \code
+ *     cache[key] = value;
+ *
+ *     value = cache[key];
+ * \endcode
+ *
+ * This works if your value can have a default which represents "not set".
+ * For example, if your cache stores strings and the empty string means
+ * that this cache is not set, then it's easy to use the [] operator
+ * (i.e. `if(!value.empty()) { ... do something with value ... }`).
+ *
+ * You can also use the derefernce operator if you want to make sure
+ * the value is defined:
+ *
+ * \code
+ *     value = *cache[key];
+ * \endcode
+ *
+ * However, that operation throws an exception if the cache entry is not
+ * defined. It cannot be guaranteed in any way because the background thread
+ * may delete the entry at any time.
+ *
+ * \warning
+ * The reference object should be short lived. a.k.a. only used in
+ * expressions and not kept in a variable. When the cache is destroyed,
+ * the reference becomes a dangling reference.
  */
 
 // self
