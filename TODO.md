@@ -1,4 +1,8 @@
 
+* Write more tests to better cover all possible cases
+  - many templates do not have 100% coverage (even if it says so)
+  - some classes/templates should have they own set of tests
+
 * Consider using `uint32_t`/`unt16_t` for all the values in `item_t`.
   - the size & allocated still allow for objects of 4Gb
     + to avoid issues, we can use the existing maximum object size

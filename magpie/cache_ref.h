@@ -49,6 +49,12 @@
  * The reference object should be short lived. a.k.a. only used in
  * expressions and not kept in a variable. When the cache is destroyed,
  * the reference becomes a dangling reference.
+ * \p
+ * However, the fact that the key exists or not is not an issue. Like
+ * with a map, assigning a value creates an entry in the cache. Yet,
+ * reading the value when not defines does not create an entry in the
+ * cache. It just returns a default version of T unless you use the
+ * operator * () in which case you get an exception (value_not_found).
  */
 
 // self

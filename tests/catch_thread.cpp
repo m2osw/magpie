@@ -524,13 +524,26 @@ CATCH_TEST_CASE("thread_one_cache_many_threads_with_random_eviction", "[thread]"
                 << snapdev::now().to_string()
                 << ": threads ended." << std::endl;
 
-            magpie::statistics_t const stats(cache->get_statistics());
+            magpie::statistics_t const stats(cache->get_statistics(true));
             std::cout << "--- statistics: " << std::endl;
             for(std::size_t idx(0);
                 idx < static_cast<std::size_t>(magpie::statistic_counter_t::STATISTIC_COUNTER_max);
                 ++idx)
             {
                 std::cout << "       [" << idx << "]=" << stats.f_counter[idx] << std::endl;
+            }
+
+            // I don't think this is entirely true since the backend thread
+            // is still running at this point and could increment some values
+            // under our feet
+            //
+            magpie::statistics_t const zeroes(cache->get_statistics());
+            for(std::size_t idx(0);
+                idx < static_cast<std::size_t>(magpie::statistic_counter_t::STATISTIC_COUNTER_max);
+                ++idx)
+            {
+                //std::cout << "       zero? [" << idx << "]=" << zeroes.f_counter[idx] << std::endl;
+                CATCH_REQUIRE(zeroes.f_counter[idx] == 0);
             }
         }
     }

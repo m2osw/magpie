@@ -863,6 +863,97 @@ CATCH_TEST_CASE("cache", "[cache]")
         while(!update_decayed || !touch_decayed);
     }
     CATCH_END_SECTION()
+
+    CATCH_START_SECTION("cache: check touch counter maximum limit (slow test, ~15s)")
+    {
+        magpie::options opts;
+        opts.set_maximum_touch_count(10);
+        magpie::cache<int, int> cache(opts);
+
+        // before we add the key, there is no metadata
+        //
+        int const key(rand());
+        magpie::metadata_t info(cache.get_metadata(key));
+        CATCH_REQUIRE_FALSE(info.is_defined());
+
+        int const v1(rand());
+        magpie::set_result_t status(cache.set(key, v1));
+        CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_ADDED);
+
+        // now it's defined, still untouched
+        //
+        info = cache.get_metadata(key);
+        CATCH_REQUIRE(info.is_defined());
+        CATCH_REQUIRE(info.f_touch_count == 0);
+
+        // first 10 times, it increases
+        //
+        for(int count(1); count <= 10; ++count)
+        {
+            std::optional<int> i(cache.get(key));
+            CATCH_REQUIRE(i.has_value());
+            CATCH_REQUIRE(i.value() == v1);
+            CATCH_REQUIRE(bool(cache[key]));
+
+            info = cache.get_metadata(key);
+            CATCH_REQUIRE(info.is_defined());
+            CATCH_REQUIRE(info.f_update_count == 1);
+            CATCH_REQUIRE(info.f_touch_count == count);
+            CATCH_REQUIRE(snapdev::is_between(info.f_last_touched_on, time(nullptr) - 2, time(nullptr) + 2));
+
+            sleep(1);
+        }
+
+        // the following 10 times, it doesn't bulge
+        //
+        for(int count(1); count <= 5; ++count)
+        {
+            std::optional<int> i(cache.get(key));
+            CATCH_REQUIRE(i.has_value());
+            CATCH_REQUIRE(i.value() == v1);
+            CATCH_REQUIRE(bool(cache[key]));
+
+            info = cache.get_metadata(key);
+            CATCH_REQUIRE(info.is_defined());
+            CATCH_REQUIRE(info.f_update_count == 1);
+            CATCH_REQUIRE(info.f_touch_count == 10); // stays at max. but the date still changes
+            CATCH_REQUIRE(snapdev::is_between(info.f_last_touched_on, time(nullptr) - 2, time(nullptr) + 2));
+
+            sleep(1);
+        }
+    }
+    CATCH_END_SECTION()
+
+    CATCH_START_SECTION("cache: verify that a stale item does not always get deleted")
+    {
+        magpie::options opts;
+        opts.set_stale_data(magpie::stale_data_t::STALE_DATA_IGNORE);
+        magpie::cache<int, int> cache(opts);
+
+        int const key(rand());
+        int const v(rand());
+
+        magpie::set_result_t status(cache.set(key, v, 2));
+        CATCH_REQUIRE(status == magpie::set_result_t::SET_RESULT_ADDED);
+
+        // first check, it's still there (it survives for 2 seconds at least)
+        //
+        std::optional<int> r(cache.get(key));
+        CATCH_REQUIRE(r.has_value());
+        CATCH_REQUIRE(r.value() == v);
+
+        // after 3 full seconds, it's not available anymore...
+        //
+        sleep(3);
+        r = cache.get(key);
+        CATCH_REQUIRE_FALSE(r.has_value());
+
+        // weird thing, though, the contains() returns true still, this
+        // may be a bug?
+        //
+        CATCH_REQUIRE(cache.contains(key));
+    }
+    CATCH_END_SECTION()
 }
 
 
@@ -902,13 +993,38 @@ CATCH_TEST_CASE("cache_error", "[cache][error]")
 
             magpie::cache<int, int> cache(opts);
 
-            std::string const v(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_UNICODE));
             CATCH_REQUIRE_THROWS_MATCHES(
                       *cache[rand()]
                     , magpie::value_not_found
                     , Catch::Matchers::ExceptionMessage(
                               "magpie_exception: value not currently set."));
         }
+    }
+    CATCH_END_SECTION()
+
+    CATCH_START_SECTION("cache_error: decay without eviction policy (update)")
+    {
+        magpie::options opts;
+        opts.set_update_decay(1, 300);
+
+        CATCH_REQUIRE_THROWS_MATCHES(
+                  (new magpie::cache<int, int>(opts))
+                , magpie::invalid_parameter
+                , Catch::Matchers::ExceptionMessage(
+                          "magpie_exception: options define decay counters without an eviction setup."));
+    }
+    CATCH_END_SECTION()
+
+    CATCH_START_SECTION("cache_error: decay without eviction policy (touch)")
+    {
+        magpie::options opts;
+        opts.set_touch_decay(1, 300);
+
+        CATCH_REQUIRE_THROWS_MATCHES(
+                  (new magpie::cache<int, int>(opts))
+                , magpie::invalid_parameter
+                , Catch::Matchers::ExceptionMessage(
+                          "magpie_exception: options define decay counters without an eviction setup."));
     }
     CATCH_END_SECTION()
 }
