@@ -80,7 +80,7 @@ private:
     struct tracker_t
     {
         typedef std::shared_ptr<tracker_t>  pointer_t;
-        typedef std::list<pointer_t>        list_t;
+        typedef std::vector<pointer_t>      vector_t;
 
                                     tracker_t(
                                           cache_impl::weak_pointer_t cache
@@ -92,7 +92,7 @@ private:
 
         // current state
         //
-        snapdev::timespec_ex        f_next_cleanup = snapdev::timespec_ex();
+        std::atomic<timespec>       f_next_cleanup{};
         bool                        f_active = false;
         bool                        f_purge_expired = false;
         bool                        f_decay_counters = false;
@@ -121,9 +121,8 @@ private:
     bool                        evict_organize_by_bucket(tracker_t &t);
     bool                        evict(tracker_t & t);
 
-    tracker_t::list_t           f_caches = tracker_t::list_t();
-    tracker_t::list_t::iterator
-                                f_caches_cleanup_it = tracker_t::list_t::iterator();
+    tracker_t::vector_t         f_caches = tracker_t::vector_t();
+    std::size_t                 f_caches_cleanup_index = 0;
     fifo_t                      f_fifo = fifo_t();
 };
 

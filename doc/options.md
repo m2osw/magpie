@@ -85,29 +85,31 @@ In the geometric approach, you use the inverse instead:
 
 The algorithms have access to many Unix timestamps (`time_t`).
 
-    ---+----+----+----+----+----+----+----+----+----+----+--... future ...--+----+--...
-       |    |    |    |    |    |    |    |    |    |    |                  |    |
-       |    |    |    |    |    |    |    |    |    |    |                  |    +---> [M] furthest item timeout (cycle: f_item_furthest_timeout)
-       |    |    |    |    |    |    |    |    |    |    |                  |
-       |    |    |    |    |    |    |    |    |    |    +---> now          +---> [P] item purge time (item: f_timeout)
+    ---+----+----+----+----+----+----+----+----+----+----+----+--... future ...--+----+--...
+       |    |    |    |    |    |    |    |    |    |    |    |                  |    |
+       |    |    |    |    |    |    |    |    |    |    |    |                  |    +---> [M] furthest item timeout (cycle: f_item_furthest_timeout)
+       |    |    |    |    |    |    |    |    |    |    |    |                  |
+       |    |    |    |    |    |    |    |    |    |    |    +---> now          +---> [P] item purge time (item: f_timeout)
+       |    |    |    |    |    |    |    |    |    |    |
+       |    |    |    |    |    |    |    |    |    |    +---> [E] eviction start time (cycle: f_started_on)
        |    |    |    |    |    |    |    |    |    |
-       |    |    |    |    |    |    |    |    |    +---> [E] eviction start time (cycle: f_started_on)
+       |    |    |    |    |    |    |    |    |    +---> [R] last item touch (cycle: f_item_most_recent_touch)
        |    |    |    |    |    |    |    |    |
-       |    |    |    |    |    |    |    |    +---> [R] last item touch (cycle: f_item_most_recent_touch)
+       |    |    |    |    |    |    |    |    +---> [U] last item update (cycle: f_item_most_recent_update)
        |    |    |    |    |    |    |    |
-       |    |    |    |    |    |    |    +---> [U] last item update (cycle: f_item_most_recent_update)
+       |    |    |    |    |    |    |    +---> [T] item last touched (item: f_last_touched_on)
        |    |    |    |    |    |    |
-       |    |    |    |    |    |    +---> [T] item last touched (item: f_last_touched_on)
+       |    |    |    |    |    |    +---> [L] item last updated (item: f_last_updated_on)
        |    |    |    |    |    |
-       |    |    |    |    |    +---> [L] item last updated (item: f_last_updated_on)
+       |    |    |    |    |    +---> [Q] oldest touch (cycle: f_item_oldest_touch)
        |    |    |    |    |
-       |    |    |    |    +---> [Q] oldest touch (cycle: f_item_oldest_touch)
+       |    |    |    |    +---> [O] oldest update (cycle: f_item_oldest_update)
        |    |    |    |
-       |    |    |    +---> [O] oldest update (cycle: f_item_oldest_update)
+       |    |    |    +---> [C] item created on (item: f_created_on)
        |    |    |
-       |    |    +---> [C] item created on (item: f_created_on)
+       |    |    +---> [D] oldest created item (item: f_item_oldest_created_on)
        |    |
-       |    +---> [F] first created item (item: f_item_oldest_created_on)
+       |    +---> [F] first created item (item: f_item_first_created_on)
        |
        +---> [S] application start time (magpie_start_time() -- application wide)
 
@@ -313,7 +315,7 @@ oldest items get removed first. No other parameters are taken in account.
 
 Equation:
 
-$$W_{eviction} = W_{\text{age weight}}\frac{E-C}{E-F}$$
+$$W_{eviction} = W_{\text{age weight}}\frac{E-C}{E-D}$$
 
 ### Setup for Random mode
 
@@ -379,7 +381,7 @@ ADD algorithm:
 Equation:
 
 $$W_{eviction} = \begin{cases}
-\frac{E-C}{E-F} & \text{access count} <= 5\\
+\frac{E-C}{E-D} & \text{access count} <= 5\\
 \frac{T - O}{R - O} + 2 & \text{otherwise}
 \end{cases}$$
 

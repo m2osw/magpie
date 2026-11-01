@@ -216,11 +216,14 @@ cache_impl::item_t::item_t(item_t const & rhs)
     , f_ttl(rhs.f_ttl)
     , f_last_updated_on(rhs.f_last_updated_on)
     , f_update_count(rhs.f_update_count)
-    , f_touch_count(rhs.f_touch_count)
-    , f_last_touched_on(rhs.f_last_touched_on)
-    , f_timeout(rhs.f_timeout)
     , f_turn(rhs.f_turn)
 {
+    // atomic prevent direct copy operations; do those by hand
+    //
+    f_touch_count = rhs.f_touch_count.load(std::memory_order::relaxed);
+    f_last_touched_on = rhs.f_last_touched_on.load(std::memory_order::relaxed);
+    f_timeout = rhs.f_timeout.load(std::memory_order::relaxed);
+
     if(rhs.f_size != 0
     && rhs.f_value != nullptr)
     {
@@ -628,6 +631,7 @@ set_result_t cache_impl::set(
         if(ttl <= 0)
         {
             erase(h);
+            stats_inc(statistic_counter_t::SET_COUNTER_REJECTED);
             return set_result_t::SET_RESULT_REJECTED_EXPIRED;
         }
         if(f_opts.get_default_ttl() != DEFAULT_TTL && f_opts.get_default_ttl() != NO_TTL)
@@ -640,6 +644,7 @@ set_result_t cache_impl::set(
                 // ttl is really short, avoid saving this value
                 //
                 erase(h);
+                stats_inc(statistic_counter_t::SET_COUNTER_REJECTED);
                 return set_result_t::SET_RESULT_REJECTED_EXPIRED;
             }
         }
@@ -650,6 +655,7 @@ set_result_t cache_impl::set(
     && allocated_bytes > f_opts.get_maximum_object_size())
     {
         erase(h);
+        stats_inc(statistic_counter_t::SET_COUNTER_REJECTED);
         return set_result_t::SET_RESULT_REJECTED_TOO_LARGE;
     }
 
@@ -719,6 +725,7 @@ set_result_t cache_impl::set(
         ++f_current_count_usage;
         f_current_capacity_usage += item.f_allocated;
 
+        stats_inc(statistic_counter_t::SET_COUNTER_UPDATED);
         return set_result_t::SET_RESULT_ADDED;
     }
     else
@@ -744,13 +751,13 @@ set_result_t cache_impl::set(
             //if(f_current_capacity_usage + additional >= f_opts.get_capacity_limit())
             {
                 bucket.f_entries.erase(it);
+                stats_inc(statistic_counter_t::SET_COUNTER_REJECTED);
                 activate_eviction();
                 return set_result_t::SET_RESULT_REJECTED_CAPACITY;
             }
         }
 
-        f_current_capacity_usage -= it->second.f_allocated;
-        f_current_capacity_usage += item.f_allocated;
+        f_current_capacity_usage += item.f_allocated - it->second.f_allocated;
         f_last_item_updated_on = now;
 
         it->second.set_value(value, value_size);
@@ -763,18 +770,19 @@ set_result_t cache_impl::set(
         || it->second.f_update_count < max_update_count)
         {
             it->second.f_update_count = snapdev::saturated_add<decltype(it->second.f_update_count)>(it->second.f_update_count, 1);
-            if(it->second.f_update_count > f_maximum_update_count)
+            if(it->second.f_update_count > f_statistics[static_cast<std::size_t>(statistic_counter_t::SET_MAXIMUM_UPDATE_COUNT)])
             {
-                f_maximum_update_count = it->second.f_update_count;
+                f_statistics[static_cast<std::size_t>(statistic_counter_t::SET_MAXIMUM_UPDATE_COUNT)] = it->second.f_update_count;
             }
         }
-        if(it->second.f_allocated > f_maximum_allocated)
+        if(it->second.f_allocated > f_statistics[static_cast<std::size_t>(statistic_counter_t::SET_MAXIMUM_ALLOCATED)])
         {
-            f_maximum_allocated = it->second.f_allocated;
+            f_statistics[static_cast<std::size_t>(statistic_counter_t::SET_MAXIMUM_ALLOCATED)] = it->second.f_allocated;
         }
         it->second.f_last_updated_on = now;
-        it->second.f_timeout = item.f_timeout;
+        it->second.f_timeout = item.f_timeout.load(std::memory_order::relaxed);
 
+        stats_inc(statistic_counter_t::SET_COUNTER_ADDED);
         return set_result_t::SET_RESULT_UPDATED;
     }
 
@@ -801,6 +809,7 @@ bool cache_impl::get(
     {
         // not in the cache
         //
+        stats_inc(statistic_counter_t::GET_COUNTER_MISSING);
         return false;
     }
 
@@ -830,15 +839,25 @@ bool cache_impl::get(
                     --f_current_count_usage;
                     f_current_capacity_usage -= it->second.f_allocated;
                     bucket.f_entries.erase(it);
+                    stats_inc(statistic_counter_t::GET_COUNTER_AUTO_ERASE);
                 }
-                // TODO: else { send to clean up thread }
+                else
+                {
+                    stats_inc(statistic_counter_t::GET_COUNTER_STALE);
+                    activate_eviction();
+                }
             }
             else
             {
                 --f_current_count_usage;
                 f_current_capacity_usage -= it->second.f_allocated;
                 bucket.f_entries.erase(it);
+                stats_inc(statistic_counter_t::GET_COUNTER_AUTO_ERASE);
             }
+        }
+        else
+        {
+            stats_inc(statistic_counter_t::GET_COUNTER_STALE);
         }
         return false;
     }
@@ -849,34 +868,40 @@ bool cache_impl::get(
         // now + f_ttl -- i.e. it pushes back when the value is considered
         // stale
         //
-        it->second.f_timeout = now + it->second.f_ttl;
+        it->second.f_timeout.store_if_larger(now + it->second.f_ttl);
     }
 
-    it->second.f_last_touched_on = now;
+    // the following loop does this atomically:
+    //
+    //     it->second.f_last_touched_on = std::max(it->second.f_last_touched_on, now);
+    //
+    it->second.f_last_touched_on.store_if_larger(now);
+
     f_last_item_touched_on = now;
 
     std::size_t const max_touch_count(f_opts.get_maximum_touch_count());
-    if(max_touch_count == NO_LIMIT
-    || it->second.f_touch_count < max_touch_count)
+    if((max_touch_count == NO_LIMIT || it->second.f_touch_count < max_touch_count)
+    && it->second.f_touch_count != std::numeric_limits<decltype(it->second.f_touch_count)::value_type>::max())
     {
-        it->second.f_touch_count = snapdev::saturated_add<decltype(it->second.f_touch_count)>(it->second.f_touch_count, 1U);
-        if(it->second.f_touch_count > f_maximum_touch_count)
+        ++it->second.f_touch_count;
+        if(it->second.f_touch_count > f_statistics[static_cast<int>(statistic_counter_t::GET_MAXIMUM_TOUCH_COUNT)])
         {
-            f_maximum_touch_count = it->second.f_touch_count;
+            f_statistics[static_cast<int>(statistic_counter_t::GET_MAXIMUM_TOUCH_COUNT)] = it->second.f_touch_count;
         }
     }
 
     f_parent->copy(it->second.f_value, value, value_size);
 
+    stats_inc(statistic_counter_t::GET_COUNTER_FOUND);
     return true;
 }
 
 
-metadata_t cache_impl::get_metadata(hash_t h)
+metadata_t cache_impl::get_metadata(hash_t h) const
 {
     metadata_t result = {};
     std::size_t const index(get_bucket_index(h));
-    bucket_t & bucket{ f_buckets[index] };
+    bucket_t const & bucket{ f_buckets[index] };
 
     // -------------------- RLOCK --------------------
     lock_guard lock(bucket.f_lock, false);
@@ -912,6 +937,25 @@ metadata_t cache_impl::get_metadata(hash_t h)
         else
         {
             result.f_stale_at = std::min(result.f_stale_at, maximum_stale_at);
+        }
+    }
+
+    return result;
+}
+
+
+statistics_t cache_impl::get_statistics(bool reset)
+{
+    statistics_t result;
+    for(std::size_t idx(0); idx < static_cast<std::size_t>(statistic_counter_t::STATISTIC_COUNTER_max); ++idx)
+    {
+        if(reset)
+        {
+            result.f_counter[idx] = f_statistics[idx].exchange(0, std::memory_order_relaxed);
+        }
+        else
+        {
+            result.f_counter[idx] = f_statistics[idx];
         }
     }
 
@@ -1005,7 +1049,7 @@ bool cache_impl::purge_expired()
                 --f_current_count_usage;
                 f_current_capacity_usage -= it->second.f_allocated;
                 it = bucket.f_entries.erase(it);
-                ++f_purged_counter;
+                stats_inc(statistic_counter_t::EVICTION_COUNTER_EXPIRED);
             }
             else
             {
@@ -1153,7 +1197,10 @@ bool cache_impl::evict_stats()
 
     if(f_evict_stats_index == 0)
     {
-        ep->cycle().new_cycle(f_first_item_created_on, f_last_item_touched_on);
+        ep->cycle().new_cycle(
+                  f_first_item_created_on
+                , f_last_item_updated_on
+                , f_last_item_touched_on);
 
         f_evict_stats_offset = snapdev::random(0UL, f_buckets.size() - 1UL);
     }
@@ -1438,7 +1485,7 @@ bool cache_impl::evict()
                     --f_current_count_usage;
                     f_current_capacity_usage -= it->second.f_allocated;
                     bucket.f_entries.erase(it);
-                    ++f_eviction_counter;
+                    stats_inc(statistic_counter_t::EVICTION_COUNTER_ERASED);
                 }
             }
         }

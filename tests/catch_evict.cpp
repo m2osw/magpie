@@ -149,8 +149,10 @@ CATCH_TEST_CASE("evict_least_recent", "[evict][thread]")
 
             // the eviction has not kicked in yet, we can check these here
             //
+#ifdef _DEBUG
             cache->verify_current_count();
             cache->verify_current_capacity();
+#endif
 
             // read many times the first 50% (indexes from pos array)
             //
@@ -171,10 +173,11 @@ CATCH_TEST_CASE("evict_least_recent", "[evict][thread]")
                     }
                 }
 
-                // these require us to pause the background thread, which isn't done yet
-                //
-                //cache->verify_current_count();
-                //cache->verify_current_capacity();
+//#ifdef _DEBUG
+// these require us to pause the background thread, which isn't done yet
+//                cache->verify_current_count();
+//                cache->verify_current_capacity();
+//#endif
                 sleep(1);
             }
 
@@ -195,8 +198,10 @@ CATCH_TEST_CASE("evict_least_recent", "[evict][thread]")
 
             // the eviction is done now so we can check these here
             //
+#ifdef _DEBUG
             cache->verify_current_count();
             cache->verify_current_capacity();
+#endif
 
             // done, everything gets destroyed
             //
@@ -262,8 +267,10 @@ CATCH_TEST_CASE("evict_least_frequent", "[evict][thread]")
 
             // the eviction has not kicked in yet, we can check these here
             //
+#ifdef _DEBUG
             cache->verify_current_count();
             cache->verify_current_capacity();
+#endif
 
             // mark the lowest values as hot by increasing their counters
             // to 10 and make sure they do not disappear while doing so
@@ -297,10 +304,11 @@ CATCH_TEST_CASE("evict_least_frequent", "[evict][thread]")
                     }
                 }
 
-                // these require us to pause the background thread, which isn't done yet
-                //
-                //cache->verify_current_count();
-                //cache->verify_current_capacity();
+//#ifdef _DEBUG
+// these require us to pause the background thread, which isn't done yet
+//                cache->verify_current_count();
+//                cache->verify_current_capacity();
+//#endif
                 sleep(1);
             }
 
@@ -321,8 +329,10 @@ CATCH_TEST_CASE("evict_least_frequent", "[evict][thread]")
 
             // the eviction is done now so we can check these here
             //
+#ifdef _DEBUG
             cache->verify_current_count();
             cache->verify_current_capacity();
+#endif
 
             // done, everything gets destroyed
             //
@@ -414,8 +424,10 @@ CATCH_TEST_CASE("evict_largest_first", "[evict][thread]")
 
             // the eviction has not kicked in yet, we can check these here
             //
+#ifdef _DEBUG
             cache->verify_current_count();
             cache->verify_current_capacity();
+#endif
 
             // now the eviction is going to kick in within about 3 seconds
             // and remove the 200 largest entries; the kept array tells us
@@ -445,18 +457,21 @@ CATCH_TEST_CASE("evict_largest_first", "[evict][thread]")
                     }
                 }
 
-                // these require us to pause the background thread, which isn't done yet
-                //
-                //cache->verify_current_count();
-                //cache->verify_current_capacity();
+//#ifdef _DEBUG
+// these require us to pause the background thread, which isn't done yet
+//cache->verify_current_count();
+//cache->verify_current_capacity();
+//#endif
                 sleep(1);
             }
             while(missing < VALUES_COUNT - reduced_size);
 
             // the eviction is done now so we can check these here
             //
+#ifdef _DEBUG
             cache->verify_current_count();
             cache->verify_current_capacity();
+#endif
 
             // done, everything gets destroyed
             //
@@ -546,8 +561,10 @@ CATCH_TEST_CASE("evict_smallest_first", "[evict][thread]")
 
             // the eviction has not kicked in yet, we can check these here
             //
+#ifdef _DEBUG
             cache->verify_current_count();
             cache->verify_current_capacity();
+#endif
 
             // now the eviction is going to kick in within about 3 seconds
             // and remove the 200 largest entries; the kept array tells us
@@ -577,18 +594,21 @@ CATCH_TEST_CASE("evict_smallest_first", "[evict][thread]")
                     }
                 }
 
-                // these require us to pause the background thread, which isn't done yet
-                //
-                //cache->verify_current_count();
-                //cache->verify_current_capacity();
+//#ifdef _DEBUG
+// these require us to pause the background thread, which isn't done yet
+//cache->verify_current_count();
+//cache->verify_current_capacity();
+//#endif
                 sleep(1);
             }
             while(missing < reduced_size);
 
             // the eviction is done now so we can check these here
             //
+#ifdef _DEBUG
             cache->verify_current_count();
             cache->verify_current_capacity();
+#endif
 
             // done, everything gets destroyed
             //
@@ -695,10 +715,11 @@ std::cout << "--- loop #" << k << " -- current capacity: " << cache->allocated()
             //{
             //}
 
-            // the eviction has not kicked in yet, we can check these here
-            //
-            //cache->verify_current_count();
-            //cache->verify_current_capacity();
+//#ifdef _DEBUG
+// the eviction has not kicked in yet, we can check these here
+//cache->verify_current_count();
+//cache->verify_current_capacity();
+//#endif
 
             // the eviction should have kicked in when we tried to add the
             // last buffer because it was too large...
@@ -726,18 +747,21 @@ std::cout << "--- loop #" << k << " -- current capacity: " << cache->allocated()
                 }
 std::cout << "--- loop -- missing: " << missing << " -- current capacity: " << cache->allocated() << std::endl;
 
-                // these require us to pause the background thread, which isn't done yet
-                //
-                //cache->verify_current_count();
-                //cache->verify_current_capacity();
+//#ifdef _DEBUG
+// these require us to pause the background thread, which isn't done yet
+//                cache->verify_current_count();
+//                cache->verify_current_capacity();
+//#endif
                 sleep(1);
             }
             while(missing < buffers.size() / 3); // it should go around buffers.size() / 2, but proof of a few on the correct side is sufficient
 
             // the eviction is done now so we can check these here
             //
+#ifdef _DEBUG
             cache->verify_current_count();
             cache->verify_current_capacity();
+#endif
 
             // done, everything gets destroyed
             //
@@ -752,7 +776,7 @@ std::cout << "--- loop -- missing: " << missing << " -- current capacity: " << c
 
 CATCH_TEST_CASE("evict_survival", "[evict][thread]")
 {
-    CATCH_START_SECTION("evict_survival: fill up the cache so TTL is used by the eviction process instead of the purge process")
+    CATCH_START_SECTION("evict_survival: fill up the cache so TTL is used by the eviction process instead of the purge process (slow test--output starts after about 30s)")
     {
         constexpr std::size_t const VALUES_COUNT = 30;
 
@@ -779,11 +803,23 @@ CATCH_TEST_CASE("evict_survival", "[evict][thread]")
             ep->profile().set_random_weight(0.0);
             opts.set_eviction_policy(ep);
 
+            // helper for debugging potential issues
+            //
+            //struct value
+            //{
+            //    ~value() { if(f_value != 0) std::cout << ">>> DELETED " << f_value << std::endl; }
+            //    operator int () const { return f_value; }
+            //    value(int v) : f_value(v) {}
+            //    value() : f_value(0) {}
+            //    value(value const & v) : f_value(v.f_value) {}
+            //    int f_value;
+            //};
+
             // construct
             //
             magpie::cache<int, int> cache(opts);
 
-            for(std::size_t w(0), r(0); r < VALUES_COUNT * 2; ++w)
+            for(std::size_t w(1), r(1); r < VALUES_COUNT * 2; ++w)
             {
                 magpie::set_result_t status(cache.set(w, w));
                 if(status != magpie::set_result_t::SET_RESULT_ADDED
@@ -796,7 +832,7 @@ CATCH_TEST_CASE("evict_survival", "[evict][thread]")
                 // because it's done on a per bucket basis; but if one
                 // item was evicted, the previous ones cannot reappear
                 //
-                for(std::size_t evicted(0);; ++evicted)
+                for(std::size_t evicted(1); evicted <= w; ++evicted)
                 {
                     magpie::cache<int, int>::optional_t v(cache.get(evicted));
                     if(v.has_value())
@@ -807,13 +843,13 @@ CATCH_TEST_CASE("evict_survival", "[evict][thread]")
                     }
                     if(evicted == r)
                     {
+                        std::cout << "--- evictions at " << r << " out of " << VALUES_COUNT * 2 << std::endl;
                         ++r;
                     }
                 }
 
                 sleep(1);
             }
-
 
             // done, everything gets destroyed
         }

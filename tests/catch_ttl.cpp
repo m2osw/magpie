@@ -105,15 +105,9 @@ CATCH_TEST_CASE("ttl", "[ttl]")
                     continue;
                 }
 
-                //std::string const v1(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_UNICODE));
-                //std::string const v2(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_UNICODE));
-                //std::string const v3(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_UNICODE));
                 std::string const v1(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
                 std::string const v2(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
                 std::string const v3(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
-std::cerr << "+++ latest v1 = " << v1 << "\n";
-std::cerr << "+++ latest v2 = " << v2 << "\n";
-std::cerr << "+++ latest v3 = " << v3 << "\n";
 
                 magpie::set_result_t status(cache.set(k1, v1));      // keep default TTL (~1.5m)
                 CATCH_REQUIRE(magpie::set_result_t::SET_RESULT_ADDED == status);
@@ -129,7 +123,7 @@ std::cerr << "+++ latest v3 = " << v3 << "\n";
                 //
                 bool two_auto_erased(false);
                 bool three_auto_erased(false);
-                for(int count(0); count < 5; ++count)
+                for(int count(0); count < 10 && (!two_auto_erased || !three_auto_erased); ++count)
                 {
                     std::cout << "--- lock mode: " << g_lock_models[lock_model].f_name << " -- check #" << count << " ---" << std::endl;
 
@@ -207,9 +201,6 @@ std::cerr << "+++ latest v3 = " << v3 << "\n";
                 std::string const v1(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
                 std::string const v2(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
                 std::string const v3(SNAP_CATCH2_NAMESPACE::random_string(1, 32, SNAP_CATCH2_NAMESPACE::character_t::CHARACTER_ASCII));
-std::cerr << "+++ latest v1 = " << v1 << "\n";
-std::cerr << "+++ latest v2 = " << v2 << "\n";
-std::cerr << "+++ latest v3 = " << v3 << "\n";
 
                 magpie::set_result_t status(cache.set(k1, v1));      // keep default TTL (~1.5m)
                 CATCH_REQUIRE(magpie::set_result_t::SET_RESULT_ADDED == status);
@@ -225,7 +216,7 @@ std::cerr << "+++ latest v3 = " << v3 << "\n";
                 //
                 bool two_auto_erased(false);
                 bool three_auto_erased(false);
-                for(int count(0); count < 10; ++count)
+                for(int count(0); count < 10 && (!two_auto_erased || !three_auto_erased); ++count)
                 {
                     std::cout << "--- lock mode: " << g_lock_models[lock_model].f_name << " -- check #" << count << " ---" << std::endl;
 

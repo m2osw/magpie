@@ -628,6 +628,10 @@ CATCH_TEST_CASE("cache", "[cache]")
                 // retrieved from the cache
                 //
                 CATCH_REQUIRE_FALSE(cache.contains(i));
+                if(cache[i])
+                {
+                    CATCH_REQUIRE(cache.contains(i)); // the cache_ref test above should have failed here
+                }
                 break;
             }
         }
@@ -668,6 +672,7 @@ CATCH_TEST_CASE("cache", "[cache]")
         std::optional<std::string> s(cache.get(33));
         CATCH_REQUIRE(s.has_value());
         CATCH_REQUIRE(s.value() == v1);
+        CATCH_REQUIRE(bool(cache[33]));
 
         info = cache.get_metadata(33);
         CATCH_REQUIRE(info.is_defined());

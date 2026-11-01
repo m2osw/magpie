@@ -164,6 +164,11 @@ public:
         return f_impl->get_metadata(hash_key(k));
     }
 
+    [[nodiscard]] statistics_t get_statistics(bool reset = false)
+    {
+        return f_impl->get_statistics(reset);
+    }
+
     template<typename A>
     requires requires(T t, A a) { { t + a } -> std::convertible_to<T>; }
     T add(K const & k, A const & a, bool update_ttl = false)

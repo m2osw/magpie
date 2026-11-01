@@ -69,21 +69,23 @@ namespace magpie
 
 void eviction_cycle::new_cycle(
       biased_time_t const & first_item_created_on
+    , biased_time_t const & last_item_updated_on
     , biased_time_t const & last_item_touched_on)
 {
-    f_started_on = biased_now();
-    ++f_turn;
+    f_started_on.store(biased_now(), std::memory_order_relaxed);
+    f_turn.fetch_add(1.0, std::memory_order_relaxed);
 
-    f_item_maximum_update_count = 0.0;
-    f_item_maximum_touch_count = 0.0;
-    f_item_maximum_allocated = 1.0;
-    f_item_oldest_created_on = std::numeric_limits<biased_time_t>::max();
-    f_item_most_recent_update = first_item_created_on;
-    f_item_most_recent_touch = last_item_touched_on;
-    f_item_oldest_update = std::numeric_limits<biased_time_t>::max();
-    f_item_oldest_touch = std::numeric_limits<biased_time_t>::max();
-    f_item_furthest_timeout = biased_time_t();
-    f_item_highest_turn = 0.0;
+    f_item_maximum_update_count.store(0.0, std::memory_order_relaxed);
+    f_item_maximum_touch_count.store(0.0, std::memory_order_relaxed);
+    f_item_maximum_allocated.store(1.0, std::memory_order_relaxed);
+    f_item_first_created_on.store(first_item_created_on, std::memory_order_relaxed);
+    f_item_oldest_created_on.store(std::numeric_limits<biased_time_t>::max(), std::memory_order_relaxed);
+    f_item_most_recent_update.store(last_item_updated_on, std::memory_order_relaxed);
+    f_item_most_recent_touch.store(last_item_touched_on, std::memory_order_relaxed);
+    f_item_oldest_update.store(std::numeric_limits<biased_time_t>::max(), std::memory_order_relaxed);
+    f_item_oldest_touch.store(std::numeric_limits<biased_time_t>::max(), std::memory_order_relaxed);
+    f_item_furthest_timeout.store(biased_time_t(), std::memory_order_relaxed);
+    f_item_highest_turn.store(0.0, std::memory_order_relaxed);
 }
 
 

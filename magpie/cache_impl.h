@@ -44,11 +44,11 @@
 // snapdev
 //
 #include    <snapdev/math.h>
+#include    <snapdev/preset_atomic.h>
 
 
 // C++
 //
-#include    <atomic>
 #include    <map>
 #include    <mutex>
 #include    <set>
@@ -97,6 +97,45 @@ struct metadata_t
     duration_t              f_ttl = NO_TTL;
     float                   f_cost = NO_COST;
     std::uint32_t           f_turn = 0;
+};
+
+
+/** \brief List of counters used for statistics purposes.
+ *
+ * This enumeration defines a setup of counters used to have
+ * statistics of the number of set()/get() calls, the eviction
+ * environment and other parts of the cache.
+ */
+enum class statistic_counter_t
+{
+    // set specific
+    //
+    SET_COUNTER_ADDED,
+    SET_COUNTER_UPDATED,
+    SET_COUNTER_REJECTED,           // in set(): TTL reached, item size too large, cache full
+    SET_MAXIMUM_UPDATE_COUNT,
+    SET_MAXIMUM_ALLOCATED,
+
+    // get specific
+    //
+    GET_COUNTER_FOUND,
+    GET_COUNTER_MISSING,
+    GET_COUNTER_STALE,
+    GET_COUNTER_AUTO_ERASE,         // in get(): TTL reached with STALE_DATA_DELETE
+    GET_MAXIMUM_TOUCH_COUNT,
+
+    // eviction specific
+    //
+    EVICTION_COUNTER_EXPIRED,
+    EVICTION_COUNTER_ERASED,
+
+    STATISTIC_COUNTER_max
+};
+
+
+struct statistics_t
+{
+    std::uint64_t           f_counter[static_cast<std::size_t>(statistic_counter_t::STATISTIC_COUNTER_max)] = {};
 };
 
 
@@ -159,13 +198,16 @@ private:
 
         // updated on a set() and/or get()
         //
-        std::uint16_t           f_touch_count = 0;                          // number of time the item was touched (get)
-        biased_time_t           f_last_touched_on = biased_time_t();        // last time this very object was read (last get only)
-        biased_time_t           f_timeout = biased_time_t();                // when value becomes stale
+        snapdev::preset_atomic<std::uint16_t, std::memory_order::relaxed, std::memory_order::relaxed>
+                                f_touch_count{0};                           // number of time the item was touched (get)
+        snapdev::preset_atomic<biased_time_t, std::memory_order::relaxed, std::memory_order::relaxed>
+                                f_last_touched_on{biased_time_t()};         // last time this very object was read (last get only)
+        snapdev::preset_atomic<biased_time_t, std::memory_order::relaxed, std::memory_order::relaxed>
+                                f_timeout{biased_time_t()};                 // when value becomes stale
 
         // updated by the eviction algorithm
         //
-        std::uint32_t           f_turn = 0;                                 // number of time this object went through the eviction process
+        std::uint32_t           f_turn = 0;                                 // number of time this item went through the eviction process
     };
 
 public:
@@ -204,7 +246,8 @@ public:
                                 , std::size_t value_size
                                 , bool update_ttl);
 
-    metadata_t              get_metadata(hash_t h);
+    metadata_t              get_metadata(hash_t h) const;
+    statistics_t            get_statistics(bool reset);
 
     bool                    erase(hash_t h);
 
@@ -265,37 +308,46 @@ private:
     typedef std::unordered_map<std::size_t, std::vector<hash_t>>
                                         organized_evict_items_t;
 
-    cache_interface *       f_parent = nullptr;
-    options const           f_opts;
-    banned_key_t            f_banned_keys = banned_key_t();
-    bucket_t::vector_t      f_buckets = bucket_t::vector_t();
-    std::size_t             f_current_capacity_usage = 0;
-    std::size_t             f_current_count_usage = 0;
-    std::uint64_t           f_maximum_update_count = 0;
-    std::uint64_t           f_maximum_touch_count = 0;
-    std::uint64_t           f_maximum_allocated = 0;
-    biased_time_t           f_first_item_created_on = biased_time_t();
-    biased_time_t           f_last_item_updated_on = biased_time_t();
-    biased_time_t           f_last_item_touched_on = biased_time_t();
-    biased_time_t           f_most_recent_item_update = biased_time_t();
-    std::size_t             f_purge_index = 0;
-    std::size_t             f_decay_index = 0;
-    std::size_t             f_evict_stats_index = 0;
-    std::size_t             f_evict_stats_offset = 0;
-    biased_time_t           f_evict_stat_last_decayed_on = biased_time_t(); // to apply various decay to item counters
-    double                  f_evict_stat_update_decay_frac = 0.0;
-    double                  f_evict_stat_touch_decay_frac = 0.0;
-    std::size_t             f_evict_weight_index = 0;
-    std::size_t             f_evict_weight_offset = 0;
-    std::size_t             f_evict_smallest_weights_count = 0;
-    smallest_evict_item_t   f_evict_smallest_weights = smallest_evict_item_t();
-    organized_evict_items_t f_evict_targets_by_bucket = organized_evict_items_t();
-    std::once_flag          f_cleanup_thread_started = std::once_flag();
+    void                        stats_inc(statistic_counter_t counter) { ++f_statistics[static_cast<int>(counter)]; }
 
-    // statistics
+    cache_interface *           f_parent = nullptr;
+    options const               f_opts;
+    banned_key_t                f_banned_keys = banned_key_t();
+    bucket_t::vector_t          f_buckets = bucket_t::vector_t();
+    snapdev::preset_atomic<std::size_t, std::memory_order::relaxed, std::memory_order::relaxed>
+                                f_current_capacity_usage{0};
+    snapdev::preset_atomic<std::size_t, std::memory_order::relaxed, std::memory_order::relaxed>
+                                f_current_count_usage{0};
+    //std::uint64_t               f_maximum_update_count = 0;
+    //std::uint64_t               f_maximum_touch_count = 0;
+    //std::uint64_t               f_maximum_allocated = 0;
+    snapdev::preset_atomic<biased_time_t, std::memory_order::relaxed, std::memory_order::relaxed>
+                                f_first_item_created_on{biased_time_t()};
+    snapdev::preset_atomic<biased_time_t, std::memory_order::relaxed, std::memory_order::relaxed>
+                                f_last_item_updated_on{biased_time_t()};
+    snapdev::preset_atomic<biased_time_t, std::memory_order::relaxed, std::memory_order::relaxed>
+                                f_last_item_touched_on{biased_time_t()};
+    biased_time_t               f_most_recent_item_update = biased_time_t();
+    std::size_t                 f_purge_index = 0;
+    std::size_t                 f_decay_index = 0;
+    std::size_t                 f_evict_stats_index = 0;
+    std::size_t                 f_evict_stats_offset = 0;
+    biased_time_t               f_evict_stat_last_decayed_on = biased_time_t(); // to apply various decay to item counters
+    double                      f_evict_stat_update_decay_frac = 0.0;
+    double                      f_evict_stat_touch_decay_frac = 0.0;
+    std::size_t                 f_evict_weight_index = 0;
+    std::size_t                 f_evict_weight_offset = 0;
+    std::size_t                 f_evict_smallest_weights_count = 0;
+    smallest_evict_item_t       f_evict_smallest_weights = smallest_evict_item_t();
+    organized_evict_items_t     f_evict_targets_by_bucket = organized_evict_items_t();
+    std::once_flag              f_cleanup_thread_started = std::once_flag();
+
+    // statistics; place each counter within its own cache line
+    // so a get() does not disturb a set() and vice versa
     //
-    std::uint64_t           f_purged_counter = 0;
-    std::uint64_t           f_eviction_counter = 0;
+    snapdev::preset_atomic<std::uint64_t, std::memory_order::relaxed, std::memory_order::relaxed>
+    //mutable std::atomic<std::uint64_t>
+                                f_statistics[static_cast<std::size_t>(statistic_counter_t::STATISTIC_COUNTER_max)] = {};
 };
 
 

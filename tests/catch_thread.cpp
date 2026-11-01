@@ -30,7 +30,13 @@
 
 // cppthread
 //
+#include    <cppthread/runner.h>
 #include    <cppthread/thread.h>
+
+
+// snapdev
+//
+#include    <snapdev/timespec_ex.h>
 
 
 // C++
@@ -237,6 +243,295 @@ std::cout << gettid() << ": --- 3 caches reset()" << std::endl;
 
             cache3.reset();
             CATCH_REQUIRE(cppthread::thread::get_running_threads() == 0);
+        }
+    }
+    CATCH_END_SECTION()
+}
+
+
+CATCH_TEST_CASE("thread_one_cache_many_threads", "[thread]")
+{
+    CATCH_START_SECTION("thread_one_cache_many_threads: create 10 threads and get/set for 1 min.")
+    {
+        constexpr std::size_t const     VALUE_COUNT = 100;
+        constexpr std::size_t const     MAX_THREADS = 10;
+
+        // we are not supposed to be running anything at this point
+        //
+        CATCH_REQUIRE(cppthread::thread::get_running_threads() == 0);
+
+        for(std::size_t lock_model(0); lock_model < std::size(g_lock_models) * 2; ++lock_model)
+        {
+            std::cout << "--- "
+                << snapdev::now().to_string()
+                << ": lock mode: " << g_lock_models[lock_model % std::size(g_lock_models)].f_name << std::endl;
+
+            magpie::options opts;
+            opts.set_lock_model(g_lock_models[lock_model % std::size(g_lock_models)].f_mode);
+
+            // construct
+            //
+            magpie::cache<int, int>::pointer_t cache(std::make_shared<magpie::cache<int, int>>(opts));
+
+            // create 3 threads
+            //
+            class concurrent
+                : public cppthread::runner
+            {
+            public:
+                typedef std::shared_ptr<concurrent>     pointer_t;
+
+                concurrent(magpie::cache<int, int>::pointer_t c, bool wait)
+                    : runner("test_thread")
+                    , f_cache(c)
+                    , f_wait(wait)
+                {
+                }
+
+                virtual void run() override
+                {
+                    int last_value(rand());
+                    snapdev::timespec_ex const start(snapdev::now());
+                    for(;;)
+                    {
+                        snapdev::timespec_ex const now(snapdev::now());
+                        snapdev::timespec_ex const diff(now - start);
+                        if(diff.tv_sec >= 60)
+                        {
+                            break;
+                        }
+
+                        if((rand() & 1) == 0)
+                        {
+                            f_cache->set(rand() % VALUE_COUNT, last_value + rand());
+                            ++f_set_count;
+                        }
+                        else
+                        {
+                            std::optional<int> r(f_cache->get(rand() % VALUE_COUNT));
+                            if(r.has_value())
+                            {
+                                ++f_get_count;
+                                last_value = r.value();
+                            }
+                        }
+
+                        if(f_wait
+                        && (rand() & 1) == 0)
+                        {
+                            snapdev::timespec_ex const nap_duration(0, rand() % 1'000'000'000);
+                            nanosleep(&nap_duration, nullptr);
+                        }
+                    }
+                }
+
+                std::size_t set_count() const
+                {
+                    return f_set_count;
+                }
+
+                std::size_t get_count() const
+                {
+                    return f_get_count;
+                }
+
+            private:
+                magpie::cache<int, int>::pointer_t  f_cache = magpie::cache<int, int>::pointer_t();
+                std::size_t                         f_set_count = 0;
+                std::size_t                         f_get_count = 0;
+                bool                                f_wait = false;
+            };
+
+            std::cout << "--- "
+                << snapdev::now().to_string()
+                << ":cache ready, starting threads..." << std::endl;
+
+            // start the threads
+            //
+            concurrent::pointer_t runner[MAX_THREADS];
+            cppthread::thread::pointer_t thread[MAX_THREADS];
+            for(std::size_t idx(0); idx < std::size(runner); ++idx)
+            {
+                runner[idx] = std::make_shared<concurrent>(cache, lock_model < std::size(g_lock_models));
+                thread[idx] = std::make_shared<cppthread::thread>("concurrent", runner[idx].get());
+                thread[idx]->start();
+            }
+
+            std::cout << "--- "
+                << snapdev::now().to_string()
+                << ": threads started, waiting on threads... (this takes ~1 min.)" << std::endl;
+
+            // the threads stop on their own after about 1 min. so we can
+            // just join the threads
+            //
+            for(std::size_t idx(0); idx < std::size(runner); ++idx)
+            {
+                thread[idx].reset();
+                std::cout << "--- "
+                    << snapdev::now().to_string()
+                    << ": thread #" << idx + 1
+                    << ": get " << runner[idx]->get_count()
+                    << "x and set " << runner[idx]->set_count()
+                    << "x" << std::endl;
+                runner[idx].reset();
+            }
+
+            std::cout << "--- "
+                << snapdev::now().to_string()
+                << ": threads ended." << std::endl;
+        }
+    }
+    CATCH_END_SECTION()
+}
+
+
+CATCH_TEST_CASE("thread_one_cache_many_threads_with_random_eviction", "[thread]")
+{
+    CATCH_START_SECTION("thread_one_cache_many_threads_with_random_eviction: create 10 threads and get/set for 1 min. with random eviction every 3 seconds")
+    {
+        constexpr std::size_t const     VALUE_COUNT = 100;
+        constexpr std::size_t const     MAX_THREADS = 10;
+
+        // we are not supposed to be running anything at this point
+        //
+        CATCH_REQUIRE(cppthread::thread::get_running_threads() == 0);
+
+        for(std::size_t lock_model(0); lock_model < std::size(g_lock_models) * 2; ++lock_model)
+        {
+            std::cout << "--- "
+                << snapdev::now().to_string()
+                << ": lock mode: " << g_lock_models[lock_model % std::size(g_lock_models)].f_name << std::endl;
+
+            magpie::options opts;
+            opts.set_cleanup_interval(3);       // 3s
+            opts.set_count_limit(VALUE_COUNT);
+            opts.set_lock_model(g_lock_models[lock_model % std::size(g_lock_models)].f_mode);
+
+            magpie::eviction_policy_add::pointer_t ep(std::make_shared<magpie::eviction_policy_add>());
+            ep->profile().set_size_eviction_trigger_percent(0.9);
+            ep->profile().set_size_eviction_reduction_percent(0.5);
+            ep->profile().set_random_weight(1.0);
+            opts.set_eviction_policy(ep);
+
+            // construct
+            //
+            magpie::cache<int, int>::pointer_t cache(std::make_shared<magpie::cache<int, int>>(opts));
+
+            // create 3 threads
+            //
+            class concurrent
+                : public cppthread::runner
+            {
+            public:
+                typedef std::shared_ptr<concurrent>     pointer_t;
+
+                concurrent(magpie::cache<int, int>::pointer_t c, bool wait)
+                    : runner("test_thread")
+                    , f_cache(c)
+                    , f_wait(wait)
+                {
+                }
+
+                virtual void run() override
+                {
+                    int last_value(rand());
+                    snapdev::timespec_ex const start(snapdev::now());
+                    for(;;)
+                    {
+                        snapdev::timespec_ex const now(snapdev::now());
+                        snapdev::timespec_ex const diff(now - start);
+                        if(diff.tv_sec >= 60)
+                        {
+                            break;
+                        }
+
+                        if((rand() & 1) == 0)
+                        {
+                            f_cache->set(rand() % VALUE_COUNT, last_value + rand());
+                            ++f_set_count;
+                        }
+                        else
+                        {
+                            std::optional<int> r(f_cache->get(rand() % VALUE_COUNT));
+                            if(r.has_value())
+                            {
+                                ++f_get_count;
+                                last_value = r.value();
+                            }
+                        }
+
+                        if(f_wait
+                        && (rand() & 1) == 0)
+                        {
+                            snapdev::timespec_ex const nap_duration(0, rand() % 1'000'000'000);
+                            nanosleep(&nap_duration, nullptr);
+                        }
+                    }
+                }
+
+                std::size_t set_count() const
+                {
+                    return f_set_count;
+                }
+
+                std::size_t get_count() const
+                {
+                    return f_get_count;
+                }
+
+            private:
+                magpie::cache<int, int>::pointer_t  f_cache = magpie::cache<int, int>::pointer_t();
+                std::size_t                         f_set_count = 0;
+                std::size_t                         f_get_count = 0;
+                bool                                f_wait = false;
+            };
+
+            std::cout << "--- "
+                << snapdev::now().to_string()
+                << ":cache ready, starting threads..." << std::endl;
+
+            // start the threads
+            //
+            concurrent::pointer_t runner[MAX_THREADS];
+            cppthread::thread::pointer_t thread[MAX_THREADS];
+            for(std::size_t idx(0); idx < std::size(runner); ++idx)
+            {
+                runner[idx] = std::make_shared<concurrent>(cache, lock_model < std::size(g_lock_models));
+                thread[idx] = std::make_shared<cppthread::thread>("concurrent", runner[idx].get());
+                thread[idx]->start();
+            }
+
+            std::cout << "--- "
+                << snapdev::now().to_string()
+                << ": threads started, waiting on threads... (this takes ~1 min.)" << std::endl;
+
+            // the threads stop on their own after about 1 min. so we can
+            // just join the threads
+            //
+            for(std::size_t idx(0); idx < std::size(runner); ++idx)
+            {
+                thread[idx].reset();
+                std::cout << "--- "
+                    << snapdev::now().to_string()
+                    << ": thread #" << idx + 1
+                    << ": get " << runner[idx]->get_count()
+                    << "x and set " << runner[idx]->set_count()
+                    << "x" << std::endl;
+                runner[idx].reset();
+            }
+
+            std::cout << "--- "
+                << snapdev::now().to_string()
+                << ": threads ended." << std::endl;
+
+            magpie::statistics_t const stats(cache->get_statistics());
+            std::cout << "--- statistics: " << std::endl;
+            for(std::size_t idx(0);
+                idx < static_cast<std::size_t>(magpie::statistic_counter_t::STATISTIC_COUNTER_max);
+                ++idx)
+            {
+                std::cout << "       [" << idx << "]=" << stats.f_counter[idx] << std::endl;
+            }
         }
     }
     CATCH_END_SECTION()

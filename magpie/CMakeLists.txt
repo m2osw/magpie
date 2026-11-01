@@ -49,6 +49,7 @@ target_include_directories(${PROJECT_NAME}
 )
 
 target_link_libraries(${PROJECT_NAME}
+    atomic
     ${CPPTHREAD_LIBRARIES}
     ${LIBEXCEPT_LIBRARIES}
     ${MURMUR3_LIBRARIES}
@@ -75,12 +76,16 @@ install(
     FILES
         cache.h
         cache_impl.h
+        cache_interface.h
         cache_ref.h
+        cache_size_traits.h
         constraint.h
+        eviction_policy.h
         exception.h
         lock_interface.h
         lock_guard.h
         options.h
+        utils.h
         ${CMAKE_CURRENT_BINARY_DIR}/version.h
 
     DESTINATION

@@ -38,6 +38,7 @@
 
 // C++
 //
+#include    <atomic>
 #include    <cmath>
 #include    <memory>
 
@@ -69,92 +70,92 @@ class eviction_profile
 public:
     std::size_t get_size_eviction_trigger_limit(std::size_t count_limit) const
     {
-        return static_cast<std::size_t>(std::floor(count_limit * f_size_eviction_trigger_percent));
+        return static_cast<std::size_t>(std::floor(count_limit * f_size_eviction_trigger_percent.load(std::memory_order_relaxed)));
     }
 
     std::size_t get_size_eviction_reduction_limit(std::size_t count_limit) const
     {
-        return static_cast<std::size_t>(std::floor(count_limit * f_size_eviction_reduction_percent));
+        return static_cast<std::size_t>(std::floor(count_limit * f_size_eviction_reduction_percent.load(std::memory_order_relaxed)));
     }
 
     void set_size_eviction_trigger_percent(double percent)
     {
-        f_size_eviction_trigger_percent = percent;
+        f_size_eviction_trigger_percent.store(percent, std::memory_order_relaxed);
     }
 
     double get_size_eviction_trigger_percent() const
     {
-        return f_size_eviction_trigger_percent;
+        return f_size_eviction_trigger_percent.load(std::memory_order_relaxed);
     }
 
     void set_size_eviction_reduction_percent(double percent)
     {
-        f_size_eviction_reduction_percent = percent;
+        f_size_eviction_reduction_percent.store(percent, std::memory_order_relaxed);
     }
 
     double get_size_eviction_reduction_percent() const
     {
-        return f_size_eviction_reduction_percent;
+        return f_size_eviction_reduction_percent.load(std::memory_order_relaxed);
     }
 
     void set_access_count_weight(double weight)
     {
-        f_access_count_weight = weight;
+        f_access_count_weight.store(weight, std::memory_order_relaxed);
     }
 
     double get_access_count_weight() const
     {
-        return f_access_count_weight;
+        return f_access_count_weight.load(std::memory_order_relaxed);
     }
 
     void set_update_count_weight(double weight)
     {
-        f_update_count_weight = weight;
+        f_update_count_weight.store(weight, std::memory_order_relaxed);
     }
 
     double get_update_count_weight() const
     {
-        return f_update_count_weight;
+        return f_update_count_weight.load(std::memory_order_relaxed);
     }
 
     void set_touch_count_weight(double weight)
     {
-        f_touch_count_weight = weight;
+        f_touch_count_weight.store(weight, std::memory_order_relaxed);
     }
 
     double get_touch_count_weight() const
     {
-        return f_touch_count_weight;
+        return f_touch_count_weight.load(std::memory_order_relaxed);
     }
 
     void set_recency_weight(double weight)
     {
-        f_recency_weight = weight;
+        f_recency_weight.store(weight, std::memory_order_relaxed);
     }
 
     double get_recency_weight() const
     {
-        return f_recency_weight;
+        return f_recency_weight.load(std::memory_order_relaxed);
     }
 
     void set_recency_write_weight(double weight)
     {
-        f_recency_write_weight = weight;
+        f_recency_write_weight.store(weight, std::memory_order_relaxed);
     }
 
     double get_recency_write_weight() const
     {
-        return f_recency_write_weight;
+        return f_recency_write_weight.load(std::memory_order_relaxed);
     }
 
     void set_recency_read_weight(double weight)
     {
-        f_recency_read_weight = weight;
+        f_recency_read_weight.store(weight, std::memory_order_relaxed);
     }
 
     double get_recency_read_weight() const
     {
-        return f_recency_read_weight;
+        return f_recency_read_weight.load(std::memory_order_relaxed);
     }
 
     void set_recency_decay_half_time(double decay_half_time)
@@ -163,12 +164,12 @@ public:
         {
             throw invalid_parameter("the recency decay half-time cannot be negative or null.");
         }
-        f_recency_decay_half_time = decay_half_time;
+        f_recency_decay_half_time.store(decay_half_time, std::memory_order_relaxed);
     }
 
     double get_recency_decay_half_time() const
     {
-        return f_recency_decay_half_time;
+        return f_recency_decay_half_time.load(std::memory_order_relaxed);
     }
 
     /** \brief Set the weight used to tweak the cache eviction.
@@ -186,22 +187,22 @@ public:
      */
     void set_allocated_weight(double weight)
     {
-        f_allocated_weight = weight;
+        f_allocated_weight.store(weight, std::memory_order_relaxed);
     }
 
     double get_allocated_weight() const
     {
-        return f_allocated_weight;
+        return f_allocated_weight.load(std::memory_order_relaxed);
     }
 
     void set_age_weight(double weight)
     {
-        f_age_weight = weight;
+        f_age_weight.store(weight, std::memory_order_relaxed);
     }
 
     double get_age_weight() const
     {
-        return f_age_weight;
+        return f_age_weight.load(std::memory_order_relaxed);
     }
 
     void set_age_decay_half_time(double decay_half_time)
@@ -210,22 +211,22 @@ public:
         {
             throw invalid_parameter("the age decay half-time cannot be negative or null.");
         }
-        f_age_decay_half_time = decay_half_time;
+        f_age_decay_half_time.store(decay_half_time, std::memory_order_relaxed);
     }
 
     double get_age_decay_half_time() const
     {
-        return f_age_decay_half_time;
+        return f_age_decay_half_time.load(std::memory_order_relaxed);
     }
 
     void set_survival_weight(double weight)
     {
-        f_survival_weight = weight;
+        f_survival_weight.store(weight, std::memory_order_relaxed);
     }
 
     double get_survival_weight() const
     {
-        return f_survival_weight;
+        return f_survival_weight.load(std::memory_order_relaxed);
     }
 
     void set_survival_decay_half_time(double decay_half_time)
@@ -234,64 +235,64 @@ public:
         {
             throw invalid_parameter("the survival decay half-time cannot be negative or null.");
         }
-        f_survival_decay_half_time = decay_half_time;
+        f_survival_decay_half_time.store(decay_half_time, std::memory_order_relaxed);
     }
 
     double get_survival_decay_half_time() const
     {
-        return f_survival_decay_half_time;
+        return f_survival_decay_half_time.load(std::memory_order_relaxed);
     }
 
     void set_turn_weight(double turn)
     {
-        f_turn_weight = turn;
+        f_turn_weight.store(turn, std::memory_order_relaxed);
     }
 
     double get_turn_weight() const
     {
-        return f_turn_weight;
+        return f_turn_weight.load(std::memory_order_relaxed);
     }
 
     void set_random_weight(double random)
     {
-        f_random_weight = random;
+        f_random_weight.store(random, std::memory_order_relaxed);
     }
 
     double get_random_weight() const
     {
-        return f_random_weight;
+        return f_random_weight.load(std::memory_order_relaxed);
     }
 
     void set_linear_normalization(linear_t linear_normalization)
     {
-        f_linear_normalization = linear_normalization;
+        f_linear_normalization.store(linear_normalization, std::memory_order_relaxed);
     }
 
     linear_t get_linear_normalization() const
     {
-        return f_linear_normalization;
+        return f_linear_normalization.load(std::memory_order_relaxed);
     }
 
 private:
-    double                  f_size_eviction_trigger_percent = EVICTION_TRIGGER_DEFAULT;
-    double                  f_size_eviction_reduction_percent = EVICTION_REDUCTION_DEFAULT;
+    std::atomic<double>     f_size_eviction_trigger_percent = EVICTION_TRIGGER_DEFAULT;
+    std::atomic<double>     f_size_eviction_reduction_percent = EVICTION_REDUCTION_DEFAULT;
 
-    double                  f_access_count_weight = 0.0;
-    double                  f_update_count_weight = 0.0;
-    double                  f_touch_count_weight = 0.0;
-    double                  f_recency_weight = 0.0;
-    double                  f_recency_write_weight = 0.0;
-    double                  f_recency_read_weight = 0.0;
-    double                  f_recency_decay_half_time = 3600.0; // 1 hour
-    double                  f_allocated_weight = 0.0;
-    double                  f_age_weight = 0.0;
-    double                  f_age_decay_half_time = 86400.0; // 1 day
-    double                  f_survival_weight = 0.0;
-    double                  f_survival_decay_half_time = 86400.0; // 1 day
-    double                  f_turn_weight = 0.0;
-    double                  f_random_weight = 0.0;
+    std::atomic<double>     f_access_count_weight = 0.0;
+    std::atomic<double>     f_update_count_weight = 0.0;
+    std::atomic<double>     f_touch_count_weight = 0.0;
+    std::atomic<double>     f_recency_weight = 0.0;
+    std::atomic<double>     f_recency_write_weight = 0.0;
+    std::atomic<double>     f_recency_read_weight = 0.0;
+    std::atomic<double>     f_recency_decay_half_time = 3600.0; // 1 hour
+    std::atomic<double>     f_allocated_weight = 0.0;
+    std::atomic<double>     f_age_weight = 0.0;
+    std::atomic<double>     f_age_decay_half_time = 86400.0; // 1 day
+    std::atomic<double>     f_survival_weight = 0.0;
+    std::atomic<double>     f_survival_decay_half_time = 86400.0; // 1 day
+    std::atomic<double>     f_turn_weight = 0.0;
+    std::atomic<double>     f_random_weight = 0.0;
 
-    linear_t                f_linear_normalization = LINEAR_ACCESSES | LINEAR_RECENCY | LINEAR_ALLOCATED | LINEAR_AGE | LINEAR_SURVIVAL;
+    std::atomic<linear_t>   f_linear_normalization = LINEAR_ACCESSES | LINEAR_RECENCY | LINEAR_ALLOCATED | LINEAR_AGE | LINEAR_SURVIVAL;
 };
 
 
@@ -300,149 +301,163 @@ class eviction_cycle
 public:
     void set_cycle_started_on(double cycle_started_on)
     {
-        f_started_on = cycle_started_on;
+        f_started_on.store(cycle_started_on, std::memory_order_relaxed);
     }
 
     double get_cycle_started_on() const
     {
-        return f_started_on;
+        return f_started_on.load(std::memory_order_relaxed);
     }
 
     double get_cycle_turn() const
     {
-        return f_turn;
+        return f_turn.load(std::memory_order_relaxed);
     }
 
     void set_item_maximum_update_count(double maximum_update_count)
     {
-        f_item_maximum_update_count = maximum_update_count;
+        f_item_maximum_update_count.store(maximum_update_count, std::memory_order_relaxed);
     }
 
     double get_item_maximum_update_count() const
     {
-        return f_item_maximum_update_count;
+        return f_item_maximum_update_count.load(std::memory_order_relaxed);
     }
 
     void set_item_maximum_touch_count(double maximum_touch_count)
     {
-        f_item_maximum_touch_count = maximum_touch_count;
+        f_item_maximum_touch_count.store(maximum_touch_count, std::memory_order_relaxed);
     }
 
     double get_item_maximum_touch_count() const
     {
-        return f_item_maximum_touch_count;
+        return f_item_maximum_touch_count.load(std::memory_order_relaxed);
     }
 
     void set_item_maximum_allocated(double maximum_allocated)
     {
-        f_item_maximum_allocated = maximum_allocated;
+        f_item_maximum_allocated.store(maximum_allocated, std::memory_order_relaxed);
     }
 
     double get_item_maximum_allocated() const
     {
-        return f_item_maximum_allocated;
+        return f_item_maximum_allocated.load(std::memory_order_relaxed);
+    }
+
+    void set_item_first_created_on(double created_on)
+    {
+        f_item_first_created_on.store(created_on, std::memory_order_relaxed);
+    }
+
+    double get_item_first_created_on() const
+    {
+        return f_item_first_created_on.load(std::memory_order_relaxed);
     }
 
     void set_item_oldest_created_on(double created_on)
     {
-        f_item_oldest_created_on = created_on;
+        f_item_oldest_created_on.store(created_on, std::memory_order_relaxed);
     }
 
     double get_item_oldest_created_on() const
     {
-        return f_item_oldest_created_on;
+        return f_item_oldest_created_on.load(std::memory_order_relaxed);
     }
 
     void set_item_most_recent_update(double updated_on)
     {
-        f_item_most_recent_update = updated_on;
+        f_item_most_recent_update.store(updated_on, std::memory_order_relaxed);
     }
 
     double get_item_most_recent_update() const
     {
-        return f_item_most_recent_update;
+        return f_item_most_recent_update.load(std::memory_order_relaxed);
     }
 
     void set_item_most_recent_touch(double touched_on)
     {
-        f_item_most_recent_touch = touched_on;
+        f_item_most_recent_touch.store(touched_on, std::memory_order_relaxed);
     }
 
     double get_item_most_recent_touch() const
     {
-        return f_item_most_recent_touch;
+        return f_item_most_recent_touch.load(std::memory_order_relaxed);
     }
 
     double get_item_most_recent_access() const
     {
-        return std::max(f_item_most_recent_update, f_item_most_recent_touch);
+        return std::max(f_item_most_recent_update.load(std::memory_order_relaxed)
+                      , f_item_most_recent_touch.load(std::memory_order_relaxed));
     }
 
     void set_item_oldest_update(double oldest_update)
     {
-        f_item_oldest_update = oldest_update;
+        f_item_oldest_update.store(oldest_update, std::memory_order_relaxed);
     }
 
     double get_item_oldest_update() const
     {
-        return f_item_oldest_update;
+        return f_item_oldest_update.load(std::memory_order_relaxed);
     }
 
     void set_item_oldest_touch(double oldest_touch)
     {
-        f_item_oldest_touch = oldest_touch;
+        f_item_oldest_touch.store(oldest_touch, std::memory_order_relaxed);
     }
 
     double get_item_oldest_touch() const
     {
-        return f_item_oldest_touch;
+        return f_item_oldest_touch.load(std::memory_order_relaxed);
     }
 
     double get_item_oldest_access() const
     {
-        return std::min(f_item_oldest_update, f_item_oldest_touch);
+        return std::min(f_item_oldest_update.load(std::memory_order_relaxed)
+                      , f_item_oldest_touch.load(std::memory_order_relaxed));
     }
 
     void set_item_furthest_timeout(double furthest_timeout)
     {
-        f_item_furthest_timeout = furthest_timeout;
+        f_item_furthest_timeout.store(furthest_timeout, std::memory_order_relaxed);
     }
 
     double get_item_furthest_timeout() const
     {
-        return f_item_furthest_timeout;
+        return f_item_furthest_timeout.load(std::memory_order_relaxed);
     }
 
     void set_item_highest_turn(double turn)
     {
-        f_item_highest_turn = turn;
+        f_item_highest_turn.store(turn, std::memory_order_relaxed);
     }
 
     double get_item_highest_turn() const
     {
-        return f_item_highest_turn;
+        return f_item_highest_turn.load(std::memory_order_relaxed);
     }
 
     void new_cycle(
           biased_time_t const & first_item_created_on
+        , biased_time_t const & last_item_updated_on
         , biased_time_t const & last_item_touched_on);
 
 private:
-    double                  f_started_on = 0.0;                 // timestamp when weight computations started
-    double                  f_turn = 0.0;                       // total number of times this eviction ran
+    std::atomic<double>     f_started_on = 0.0;                 // timestamp when weight computations started
+    std::atomic<double>     f_turn = 0.0;                       // total number of times this eviction ran
 
     // item min/max
     //
-    double                  f_item_maximum_update_count = 0.0;  // from item with largest update count (set)
-    double                  f_item_maximum_touch_count = 0.0;   // from item with largest touch count (get)
-    double                  f_item_maximum_allocated = 0.0;     // from item with largest memory byte size
-    double                  f_item_oldest_created_on = 0.0;     // timestamp of when the oldest item was created
-    double                  f_item_most_recent_update = 0.0;    // timestamp of the most recent item update
-    double                  f_item_most_recent_touch = 0.0;     // timestamp of the most recent item touch
-    double                  f_item_oldest_update = 0.0;         // timestamp of the item with the oldest f_last_updated_on
-    double                  f_item_oldest_touch = 0.0;          // timestamp of the item with the oldest f_last_touched_on
-    double                  f_item_furthest_timeout = 0.0;      // timestamp of the item with the largest f_timeout
-    double                  f_item_highest_turn = 0.0;          // number of times the eviction algorithm ran against this item
+    std::atomic<double>     f_item_maximum_update_count = 0.0;  // from item with largest update count (set)
+    std::atomic<double>     f_item_maximum_touch_count = 0.0;   // from item with largest touch count (get)
+    std::atomic<double>     f_item_maximum_allocated = 0.0;     // from item with largest memory byte size
+    std::atomic<double>     f_item_first_created_on = 0.0;      // timestamp of when the first item was created
+    std::atomic<double>     f_item_oldest_created_on = 0.0;     // timestamp of when the oldest item was created
+    std::atomic<double>     f_item_most_recent_update = 0.0;    // timestamp of the most recent item update
+    std::atomic<double>     f_item_most_recent_touch = 0.0;     // timestamp of the most recent item touch
+    std::atomic<double>     f_item_oldest_update = 0.0;         // timestamp of the item with the oldest f_last_updated_on
+    std::atomic<double>     f_item_oldest_touch = 0.0;          // timestamp of the item with the oldest f_last_touched_on
+    std::atomic<double>     f_item_furthest_timeout = 0.0;      // timestamp of the item with the largest f_timeout
+    std::atomic<double>     f_item_highest_turn = 0.0;          // number of times the eviction algorithm ran against this item
 };
 
 
@@ -451,109 +466,110 @@ class eviction_item
 public:
     void set_update_count(double update_count)
     {
-        f_update_count = update_count;
+        f_update_count.store(update_count, std::memory_order_relaxed);
     }
 
     double get_update_count() const
     {
-        return f_update_count;
+        return f_update_count.load(std::memory_order_relaxed);
     }
 
     void set_touch_count(double touch_count)
     {
-        f_touch_count = touch_count;
+        f_touch_count.store(touch_count, std::memory_order_relaxed);
     }
 
     double get_touch_count() const
     {
-        return f_touch_count;
+        return f_touch_count.load(std::memory_order_relaxed);
     }
 
     void set_last_updated_on(double last_updated_on)
     {
-        f_last_updated_on = last_updated_on;
+        f_last_updated_on.store(last_updated_on, std::memory_order_relaxed);
     }
 
     double get_last_updated_on() const
     {
-        return f_last_updated_on;
+        return f_last_updated_on.load(std::memory_order_relaxed);
     }
 
     void set_last_touched_on(double last_touched_on)
     {
-        f_last_touched_on = last_touched_on;
+        f_last_touched_on.store(last_touched_on, std::memory_order_relaxed);
     }
 
     double get_last_touched_on() const
     {
-        return f_last_touched_on;
+        return f_last_touched_on.load(std::memory_order_relaxed);
     }
 
     double get_last_accessed_on() const
     {
-        return std::max(f_last_updated_on, f_last_touched_on);
+        return std::max(f_last_updated_on.load(std::memory_order_relaxed)
+                      , f_last_touched_on.load(std::memory_order_relaxed));
     }
 
     void set_allocated(double allocated)
     {
-        f_allocated = allocated;
+        f_allocated.store(allocated, std::memory_order_relaxed);
     }
 
     double get_allocated() const
     {
-        return f_allocated;
+        return f_allocated.load(std::memory_order_relaxed);
     }
 
     void set_created_on(double created_on)
     {
-        f_created_on = created_on;
+        f_created_on.store(created_on, std::memory_order_relaxed);
     }
 
     double get_created_on() const
     {
-        return f_created_on;
+        return f_created_on.load(std::memory_order_relaxed);
     }
 
     void set_timeout(double timeout)
     {
-        f_timeout = timeout;
+        f_timeout.store(timeout, std::memory_order_relaxed);
     }
 
     double get_timeout() const
     {
-        return f_timeout;
+        return f_timeout.load(std::memory_order_relaxed);
     }
 
     void set_cost(double cost)
     {
-        f_cost = cost;
+        f_cost.store(cost, std::memory_order_relaxed);
     }
 
     double get_cost() const
     {
-        return f_cost;
+        return f_cost.load(std::memory_order_relaxed);
     }
 
     void set_turn(double turn)
     {
-        f_turn = turn;
+        f_turn.store(turn, std::memory_order_relaxed);
     }
 
     double get_turn() const
     {
-        return f_turn;
+        return f_turn.load(std::memory_order_relaxed);
     }
 
 private:
-    double                  f_update_count = 0.0;           // the item update count (set)
-    double                  f_touch_count = 0.0;            // the item touch count (get)
-    double                  f_created_on = 0.0;             // timestamp when object was first inserted in cache
-    double                  f_last_updated_on = 0.0;        // timestamp of last set()
-    double                  f_last_touched_on = 0.0;        // timestamp of last get()
-    double                  f_timeout = 0.0;                // timestamp when the item is to timeout
-    double                  f_allocated = 0.0;              // byte size of this item
-    double                  f_cost = NO_COST;               // the cost of evicting this item
-    double                  f_turn = 0.0;                   // number of time the eviction algorithm ran against this item
+    std::atomic<double>     f_update_count = 0.0;           // the item update count (set)
+    std::atomic<double>     f_touch_count = 0.0;            // the item touch count (get)
+    std::atomic<double>     f_created_on = 0.0;             // timestamp when object was first inserted in cache
+    std::atomic<double>     f_last_updated_on = 0.0;        // timestamp of last set()
+    std::atomic<double>     f_last_touched_on = 0.0;        // timestamp of last get()
+    std::atomic<double>     f_timeout = 0.0;                // timestamp when the item is to timeout
+    std::atomic<double>     f_allocated = 0.0;              // byte size of this item
+    std::atomic<double>     f_cost = NO_COST;               // the cost of evicting this item
+    std::atomic<double>     f_turn = 0.0;                   // number of time the eviction algorithm ran against this item
 };
 
 
@@ -699,11 +715,11 @@ class eviction_policy_slru
 public:
     virtual double          compute_weight() const override;
 
-    void                    set_minimum_touch_count(double count)  { f_minimum_touch_count = count; }
-    double                  get_minimum_touch_count() const        { return f_minimum_touch_count; }
+    void                    set_minimum_touch_count(double count)  { f_minimum_touch_count.store(count, std::memory_order_relaxed); }
+    double                  get_minimum_touch_count() const        { return f_minimum_touch_count.load(std::memory_order_relaxed); }
 
 private:
-    double                  f_minimum_touch_count = 1.0;
+    std::atomic<double>     f_minimum_touch_count = 1.0;
 };
 
 
