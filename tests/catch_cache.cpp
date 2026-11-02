@@ -948,6 +948,9 @@ CATCH_TEST_CASE("cache", "[cache]")
         r = cache.get(key);
         CATCH_REQUIRE_FALSE(r.has_value());
 
+        magpie::statistics_t const stats(cache.get_statistics(true));
+        CATCH_REQUIRE(stats.f_counter[static_cast<int>(magpie::statistic_counter_t::GET_COUNTER_STALE)] == 1);
+
         // weird thing, though, the contains() returns true still, this
         // may be a bug?
         //
