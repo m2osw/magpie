@@ -65,6 +65,21 @@ namespace detail
 
 
 
+/** \brief Lock for our clean up thread.
+ *
+ * This lock is used to manage the clean up thread creation, deletion,
+ * etc. We create a single thread for the entire set of caches. A really
+ * large application with many caches may suffer some slowness in that
+ * regard. At the same time, you can have the thread pretty much
+ * permanently running so it could very well support quite many caches.
+ *
+ * It is made global so it gets initialized when this library gets loaded
+ * and uninitialized when the library is unloaded. This means we do not
+ * get any leaks and proper construction and destruction.
+ */
+cppthread::mutex                g_cleanup_lock = cppthread::mutex();
+
+
 cleanup_runner::pointer_t       g_cleanup_runner = cleanup_runner::pointer_t();
 
 
@@ -110,8 +125,7 @@ enum class cleanup_worker_action_t
  */
 void start_stop_cleanup_worker(cache_impl::pointer_t impl, cleanup_worker_action_t action)
 {
-    static cppthread::mutex local_lock = cppthread::mutex();
-    cppthread::guard lock(local_lock);
+    cppthread::guard lock(g_cleanup_lock);
 
     // done with the thread?
     //
